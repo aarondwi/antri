@@ -16,3 +16,6 @@
 
 # internal file
 *.log
+
+# for playing around with ab/others
+postfile 

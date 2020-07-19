@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"math/rand"
@@ -14,29 +15,33 @@ import (
 )
 
 var newlineByte = byte('\n')
-var letterRunes = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+var newlineByteSlice = []byte("\n")
+var letterBytes = []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
 
-func randStringRunes(n int) string {
-	b := make([]rune, n)
-	l := len(letterRunes)
+func randStringBytes(n int) []byte {
+	b := make([]byte, n)
+	l := len(letterBytes)
 	for i := range b {
-		b[i] = letterRunes[rand.Intn(l)]
+		b[i] = letterBytes[rand.Intn(l)]
 	}
-	return string(b)
+	return b
 }
 
 type AntriServer struct {
-	// synchronization primitive
-	mutex    *sync.Mutex
-	notEmpty *sync.Cond
-	notFull  *sync.Cond
+	// internal queue + stats
+	mutex           *sync.Mutex
+	notEmpty        *sync.Cond
+	notFull         *sync.Cond
+	pq              *priorityqueue.Pq
+	maxsize         int
+	unfinishedTasks int // tracking
 
-	// internal objects
-	pq      *priorityqueue.Pq
-	maxsize int
-
-	// tracking
-	unfinishedTasks int
+	// inflight records + stats
+	// not using sync.Map or equivalent
+	// cause we also want to update the stats
+	inflightMutex   *sync.Mutex
+	inflightRecords map[string]*priorityqueue.PqItem
+	inflightTasks   int
 
 	// durability option
 	added *util.MutexedFile
@@ -47,18 +52,25 @@ func NewAntriServer(maxsize int) (*AntriServer, error) {
 	if maxsize <= 0 {
 		return nil, fmt.Errorf("maxsize should be positive, received %d", maxsize)
 	}
+
+	// addTask + retrieveTask path
 	mutex := sync.Mutex{}
 	notEmpty := sync.NewCond(&mutex)
 	notFull := sync.NewCond(&mutex)
 
 	addedMutex := sync.Mutex{}
-	addedFile, err := os.OpenFile("addedfile", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	addedFile, err := os.OpenFile("added.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		log.Fatal(err)
 	}
 
+	// inflight path
+	inflightMutex := sync.Mutex{}
+	inflightRecords := make(map[string]*priorityqueue.PqItem)
+
+	// commitTask path
 	takenMutex := sync.Mutex{}
-	takenFile, err := os.OpenFile("getfile", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	takenFile, err := os.OpenFile("taken.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -70,6 +82,8 @@ func NewAntriServer(maxsize int) (*AntriServer, error) {
 		unfinishedTasks: 0,
 		pq:              priorityqueue.NewPq(maxsize),
 		maxsize:         maxsize,
+		inflightMutex:   &inflightMutex,
+		inflightRecords: inflightRecords,
 		added: &util.MutexedFile{
 			M: &addedMutex,
 			F: addedFile},
@@ -89,12 +103,17 @@ func (as *AntriServer) AddTask(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
+	// by default (for now), we gonna craete the key using 16-byte base62
+	taskKey := randStringBytes(16)
+	taskKeyStr := string(taskKey)
+
 	// separate commit point
 	// dont wanna block read because of fsync
 	// after this point, it is considered committed
-	// and this can be done
-	// because the next part shouldn't fail
+	// for now, we use text files for wal
 	as.added.M.Lock()
+	as.added.F.Write(taskKey)
+	as.added.F.Write(newlineByteSlice)
 	as.added.F.Write(append(ctx.FormValue("value"), newlineByte))
 	as.added.F.Sync()
 	as.added.M.Unlock()
@@ -106,13 +125,15 @@ func (as *AntriServer) AddTask(ctx *fasthttp.RequestCtx) {
 		as.notFull.Wait()
 	}
 	as.pq.Insert(&priorityqueue.PqItem{
-		Value:       ctx.FormValue("value"),
-		ScheduledAt: time.Now().Unix() + int64(ctx.PostArgs().GetUintOrZero("secondsfromnow"))})
+		Key:         taskKeyStr,
+		Value:       string(ctx.FormValue("value")),
+		ScheduledAt: time.Now().Unix() + int64(ctx.PostArgs().GetUintOrZero("secondsfromnow")),
+		Retries:     0})
 	as.unfinishedTasks++
 	as.notEmpty.Signal()
 	as.mutex.Unlock()
 
-	fmt.Fprintf(ctx, "OK!")
+	fmt.Fprintf(ctx, taskKeyStr)
 }
 
 // RetrieveTask takes a task from in-memory priorityqueue
@@ -125,7 +146,7 @@ func (as *AntriServer) RetrieveTask(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	var res []byte
+	var res *priorityqueue.PqItem
 	var placeholder *priorityqueue.PqItem
 	var timediff int64
 
@@ -137,6 +158,7 @@ func (as *AntriServer) RetrieveTask(ctx *fasthttp.RequestCtx) {
 			as.notEmpty.Wait()
 		}
 		// won't be nil, as we wait for unfinishedTasks to be > 0
+		// so no need to check
 		placeholder = as.pq.Peek()
 		timediff = placeholder.ScheduledAt - int64(time.Now().Unix())
 		if timediff > 0 {
@@ -147,12 +169,99 @@ func (as *AntriServer) RetrieveTask(ctx *fasthttp.RequestCtx) {
 			as.mutex.Lock()
 			continue
 		}
-		res = as.pq.Pop().Value
+		res = as.pq.Pop()
 		as.unfinishedTasks--
 		as.notFull.Signal()
 		as.mutex.Unlock()
 		break
 	}
 
-	fmt.Fprintf(ctx, string(res))
+	// only hold in-memory
+	// the at-least-once guarantee is via log
+	as.inflightMutex.Lock()
+	as.inflightRecords[res.Key] = res
+	as.inflightTasks++
+	as.inflightMutex.Unlock()
+
+	// this should NOT error
+	// because we totally manage this ourselves
+	byteArray, _ := json.Marshal(res)
+	fmt.Fprintf(ctx, string(byteArray))
+}
+
+// CommitTask checks if the given key is currently inflight
+// if found, it removes the key from the inflightRecords
+// if not found, returns error
+func (as *AntriServer) CommitTask(ctx *fasthttp.RequestCtx) {
+	if string(ctx.Method()) != "POST" {
+		ctx.SetStatusCode(400)
+		fmt.Fprint(ctx, "Only Support POST Method.")
+		return
+	}
+
+	// no need to check it here
+	taskKey := string(ctx.FormValue("key"))
+	as.inflightMutex.Lock()
+	_, ok := as.inflightRecords[taskKey]
+	if ok {
+		delete(as.inflightRecords, taskKey)
+	}
+	as.inflightMutex.Unlock()
+
+	// no need to do this inside the lock
+	if !ok {
+		ctx.SetStatusCode(404)
+		fmt.Fprint(ctx, "Task Key not found")
+		return
+	}
+
+	// meaning found, commit to wal
+	as.taken.M.Lock()
+	as.taken.F.Write(ctx.FormValue("key"))
+	as.taken.F.Write(newlineByteSlice)
+	as.taken.F.Sync()
+	as.taken.M.Unlock()
+
+	fmt.Fprint(ctx, "OK")
+}
+
+// RejectTask checks if the given key is currently inflight
+// if found, it removes the key from the inflightRecords, and put it back to pq
+// if not found, returns error
+func (as *AntriServer) RejectTask(ctx *fasthttp.RequestCtx) {
+	if string(ctx.Method()) != "POST" {
+		ctx.SetStatusCode(400)
+		fmt.Fprint(ctx, "Only Support POST Method.")
+		return
+	}
+
+	// no need to check it here
+	taskKey := string(ctx.FormValue("key"))
+	as.inflightMutex.Lock()
+	val, ok := as.inflightRecords[taskKey]
+	if ok {
+		delete(as.inflightRecords, taskKey)
+	}
+	as.inflightMutex.Unlock()
+
+	// no need to do this inside the lock
+	if !ok {
+		ctx.SetStatusCode(404)
+		fmt.Fprint(ctx, "Task Key not found")
+		return
+	}
+
+	// for now, add 10s for retries delay
+	val.Retries++
+	val.ScheduledAt = time.Now().Unix() + 10
+	as.mutex.Lock()
+	for as.unfinishedTasks == as.maxsize {
+		as.notFull.Wait()
+	}
+	as.pq.Insert(val)
+	as.unfinishedTasks++
+	as.notEmpty.Signal()
+	as.mutex.Unlock()
+
+	fmt.Fprint(ctx, "OK")
 }

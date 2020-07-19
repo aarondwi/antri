@@ -1,13 +1,15 @@
 package priorityqueue
 
+// PqItem is our task object
 type PqItem struct {
-	ScheduledAt int64
-	Key         []byte
-	Value       []byte
+	ScheduledAt int64  `json:"scheduledAt"`
+	Key         string `json:"key"`
+	Value       string `json:"value"`
+	Retries     int8   `json:"retries"`
 }
 
 // Pq is our main priority queue implementation
-// the sort order is determined by scheduledAt
+// the sort order is determined by ScheduledAt
 // with smaller value returned earlier
 type Pq struct {
 	heapArray []*PqItem

@@ -3,11 +3,14 @@ package main
 import (
 	"fmt"
 	"log"
+	"math/rand"
+	"time"
 
 	"github.com/valyala/fasthttp"
 )
 
 func main() {
+	rand.Seed(time.Now().UTC().UnixNano())
 	s, _ := NewAntriServer(50_000)
 	requestHandler := func(ctx *fasthttp.RequestCtx) {
 		switch string(ctx.Path()) {
@@ -16,6 +19,12 @@ func main() {
 			return
 		case "/retrieve":
 			s.RetrieveTask(ctx)
+			return
+		case "/commit":
+			s.CommitTask(ctx)
+			return
+		case "/reject":
+			s.RejectTask(ctx)
 			return
 		default:
 			ctx.SetStatusCode(404)
