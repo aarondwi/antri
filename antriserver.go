@@ -97,13 +97,13 @@ func NewAntriServer(maxsize int) (*AntriServer, error) {
 // and add it to in-memory PriorityQueue
 // Available via POST method, at /add
 func (as *AntriServer) AddTask(ctx *fasthttp.RequestCtx) {
-	if string(ctx.Method()) != "POST" {
+	// by default (for now), we gonna craete the key using 16-byte base62
+	if len(ctx.FormValue("value")) >= 0 {
 		ctx.SetStatusCode(400)
-		fmt.Fprint(ctx, "Only Support POST Method.")
+		ctx.WriteString("value of the task should be provided")
 		return
 	}
 
-	// by default (for now), we gonna craete the key using 16-byte base62
 	taskKey := randStringBytes(16)
 	taskKeyStr := string(taskKey)
 
@@ -133,19 +133,13 @@ func (as *AntriServer) AddTask(ctx *fasthttp.RequestCtx) {
 	as.notEmpty.Signal()
 	as.mutex.Unlock()
 
-	fmt.Fprintf(ctx, taskKeyStr)
+	ctx.WriteString(taskKeyStr)
 }
 
 // RetrieveTask takes a task from in-memory priorityqueue
 // and move it to in-memory map
 // Available via GET method, at /retrieve
 func (as *AntriServer) RetrieveTask(ctx *fasthttp.RequestCtx) {
-	if string(ctx.Method()) != "GET" {
-		ctx.SetStatusCode(400)
-		fmt.Fprint(ctx, "Only Support GET Method.")
-		return
-	}
-
 	var res *priorityqueue.PqItem
 	var placeholder *priorityqueue.PqItem
 	var timediff int64
@@ -186,21 +180,14 @@ func (as *AntriServer) RetrieveTask(ctx *fasthttp.RequestCtx) {
 	// this should NOT error
 	// because we totally manage this ourselves
 	byteArray, _ := json.Marshal(res)
-	fmt.Fprintf(ctx, string(byteArray))
+	ctx.Write(byteArray)
 }
 
 // CommitTask checks if the given key is currently inflight
 // if found, it removes the key from the inflightRecords
 // if not found, returns error
 func (as *AntriServer) CommitTask(ctx *fasthttp.RequestCtx) {
-	if string(ctx.Method()) != "POST" {
-		ctx.SetStatusCode(400)
-		fmt.Fprint(ctx, "Only Support POST Method.")
-		return
-	}
-
-	// no need to check it here
-	taskKey := string(ctx.FormValue("key"))
+	taskKey := ctx.UserValue("taskKey").(string)
 	as.inflightMutex.Lock()
 	_, ok := as.inflightRecords[taskKey]
 	if ok {
@@ -222,21 +209,14 @@ func (as *AntriServer) CommitTask(ctx *fasthttp.RequestCtx) {
 	as.taken.F.Sync()
 	as.taken.M.Unlock()
 
-	fmt.Fprint(ctx, "OK")
+	ctx.WriteString("OK")
 }
 
 // RejectTask checks if the given key is currently inflight
 // if found, it removes the key from the inflightRecords, and put it back to pq
 // if not found, returns error
 func (as *AntriServer) RejectTask(ctx *fasthttp.RequestCtx) {
-	if string(ctx.Method()) != "POST" {
-		ctx.SetStatusCode(400)
-		fmt.Fprint(ctx, "Only Support POST Method.")
-		return
-	}
-
-	// no need to check it here
-	taskKey := string(ctx.FormValue("key"))
+	taskKey := ctx.UserValue("taskKey").(string)
 	as.inflightMutex.Lock()
 	val, ok := as.inflightRecords[taskKey]
 	if ok {
@@ -263,5 +243,5 @@ func (as *AntriServer) RejectTask(ctx *fasthttp.RequestCtx) {
 	as.notEmpty.Signal()
 	as.mutex.Unlock()
 
-	fmt.Fprint(ctx, "OK")
+	ctx.WriteString("OK")
 }
