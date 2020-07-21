@@ -11,6 +11,7 @@ import (
 
 	"github.com/aarondwi/antri/priorityqueue"
 	"github.com/aarondwi/antri/util"
+	"github.com/fasthttp/router"
 	"github.com/valyala/fasthttp"
 )
 
@@ -98,9 +99,9 @@ func NewAntriServer(maxsize int) (*AntriServer, error) {
 // Available via POST method, at /add
 func (as *AntriServer) AddTask(ctx *fasthttp.RequestCtx) {
 	// by default (for now), we gonna craete the key using 16-byte base62
-	if len(ctx.FormValue("value")) >= 0 {
+	if len(ctx.FormValue("value")) <= 0 {
 		ctx.SetStatusCode(400)
-		ctx.WriteString("value of the task should be provided")
+		ctx.WriteString("content of the task should be provided")
 		return
 	}
 
@@ -133,6 +134,7 @@ func (as *AntriServer) AddTask(ctx *fasthttp.RequestCtx) {
 	as.notEmpty.Signal()
 	as.mutex.Unlock()
 
+	log.Println(taskKeyStr)
 	ctx.WriteString(taskKeyStr)
 }
 
@@ -233,7 +235,7 @@ func (as *AntriServer) RejectTask(ctx *fasthttp.RequestCtx) {
 
 	// for now, add 10s for retries delay
 	val.Retries++
-	val.ScheduledAt = time.Now().Unix() + 10
+	val.ScheduledAt = time.Now().Unix() + 5
 	as.mutex.Lock()
 	for as.unfinishedTasks == as.maxsize {
 		as.notFull.Wait()
@@ -244,4 +246,16 @@ func (as *AntriServer) RejectTask(ctx *fasthttp.RequestCtx) {
 	as.mutex.Unlock()
 
 	ctx.WriteString("OK")
+}
+
+// Router returns fasthttp/router that already set with AntriServer handler
+func (as *AntriServer) Router() *router.Router {
+	rand.Seed(time.Now().UTC().UnixNano())
+	r := router.New()
+	r.POST("/add", as.AddTask)
+	r.GET("/retrieve", as.RetrieveTask)
+	r.POST("/commit/{taskKey}", as.CommitTask)
+	r.POST("/reject/{taskKey}", as.RejectTask)
+
+	return r
 }

@@ -76,13 +76,13 @@ func (m *Pq) downHeapify(current int) {
 	}
 	largest := current
 	leftChildIndex := m.leftchild(current)
-	rightRightIndex := m.rightchild(current)
+	rightChildIndex := m.rightchild(current)
 	//If current is smallest then return
 	if leftChildIndex < m.size && m.greater(leftChildIndex, largest) {
 		largest = leftChildIndex
 	}
-	if rightRightIndex < m.size && m.greater(rightRightIndex, largest) {
-		largest = rightRightIndex
+	if rightChildIndex < m.size && m.greater(rightChildIndex, largest) {
+		largest = rightChildIndex
 	}
 	if largest != current {
 		m.swap(current, largest)
