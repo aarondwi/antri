@@ -248,8 +248,8 @@ func (as *AntriServer) RejectTask(ctx *fasthttp.RequestCtx) {
 	ctx.WriteString("OK")
 }
 
-// Router returns fasthttp/router that already set with AntriServer handler
-func (as *AntriServer) Router() *router.Router {
+// NewAntriServerRouter returns fasthttp/router that already set with AntriServer handler
+func NewAntriServerRouter(as *AntriServer) *router.Router {
 	rand.Seed(time.Now().UTC().UnixNano())
 	r := router.New()
 	r.POST("/add", as.AddTask)

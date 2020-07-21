@@ -20,7 +20,7 @@ var (
 
 func TestAddRetrieveCommit(t *testing.T) {
 	server := fasthttp.Server{
-		Handler:     as.Router().Handler,
+		Handler:     NewAntriServerRouter(as).Handler,
 		Concurrency: 2,
 	}
 
@@ -77,7 +77,7 @@ func TestAddRetrieveCommit(t *testing.T) {
 
 func TestAddRetrieveRejectThenReretrieve(t *testing.T) {
 	server := fasthttp.Server{
-		Handler:     as.Router().Handler,
+		Handler:     NewAntriServerRouter(as).Handler,
 		Concurrency: 2,
 	}
 
@@ -151,7 +151,7 @@ func TestAddRetrieveRejectThenReretrieve(t *testing.T) {
 
 func TestValueNotProvided(t *testing.T) {
 	server := fasthttp.Server{
-		Handler:     as.Router().Handler,
+		Handler:     NewAntriServerRouter(as).Handler,
 		Concurrency: 2,
 	}
 
@@ -172,7 +172,7 @@ func TestValueNotProvided(t *testing.T) {
 
 func TestCommitNotFound(t *testing.T) {
 	server := fasthttp.Server{
-		Handler:     as.Router().Handler,
+		Handler:     NewAntriServerRouter(as).Handler,
 		Concurrency: 2,
 	}
 
@@ -193,7 +193,7 @@ func TestCommitNotFound(t *testing.T) {
 
 func TestRejectNotFound(t *testing.T) {
 	server := fasthttp.Server{
-		Handler:     as.Router().Handler,
+		Handler:     NewAntriServerRouter(as).Handler,
 		Concurrency: 2,
 	}
 
@@ -220,7 +220,7 @@ var (
 
 func TestLockWaitFlow(t *testing.T) {
 	server := fasthttp.Server{
-		Handler:     as2.Router().Handler,
+		Handler:     NewAntriServerRouter(as2).Handler,
 		Concurrency: 5,
 	}
 

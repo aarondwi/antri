@@ -10,7 +10,7 @@ func main() {
 	as, _ := NewAntriServer(50_000)
 
 	server := fasthttp.Server{
-		Handler:     as.Router().Handler,
+		Handler:     NewAntriServerRouter(as).Handler,
 		Concurrency: 50,
 	}
 	log.Fatal(server.ListenAndServe("127.0.0.1:8080"))
