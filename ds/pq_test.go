@@ -1,4 +1,4 @@
-package priorityqueue
+package ds
 
 import (
 	"testing"

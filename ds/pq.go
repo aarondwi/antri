@@ -1,4 +1,4 @@
-package priorityqueue
+package ds
 
 // PqItem is our task object
 type PqItem struct {
@@ -11,12 +11,15 @@ type PqItem struct {
 // Pq is our main priority queue implementation
 // the sort order is determined by ScheduledAt
 // with smaller value returned earlier
+//
+// This struct is NOT thread-safe
 type Pq struct {
 	heapArray []*PqItem
 	size      int
 	maxsize   int
 }
 
+// NewPq setups our priorityqueue with the config
 func NewPq(maxsize int) *Pq {
 	maxheap := &Pq{
 		heapArray: []*PqItem{},
@@ -26,6 +29,7 @@ func NewPq(maxsize int) *Pq {
 	return maxheap
 }
 
+// HeapSize returns our priorityqueue size
 func (m *Pq) HeapSize() int {
 	return m.size
 }
@@ -46,6 +50,11 @@ func (m *Pq) rightchild(index int) int {
 	return 2*index + 2
 }
 
+// Insert an item into the priorityqueue
+// and reorder its internal
+//
+// in theory, if the later work always scheduled earlier
+// this gonna be bit slower, cause lots of swapping (log2(m.HeapSize()))
 func (m *Pq) Insert(item *PqItem) error {
 	m.heapArray = append(m.heapArray, item)
 	m.size++
@@ -90,6 +99,8 @@ func (m *Pq) downHeapify(current int) {
 	}
 }
 
+// Pop returns one item from the priorityqueue
+// and removing it
 func (m *Pq) Pop() *PqItem {
 	top := m.heapArray[0]
 	m.heapArray[0] = m.heapArray[m.size-1]
@@ -99,6 +110,8 @@ func (m *Pq) Pop() *PqItem {
 	return top
 }
 
+// Peek returns one item from the priorityqueue
+// but not removing it
 func (m *Pq) Peek() *PqItem {
 	if m.HeapSize() > 0 {
 		return m.heapArray[0]

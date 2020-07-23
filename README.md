@@ -3,23 +3,21 @@ toy implementation of delayed-task queue, primarily intended for learning
 
 Trivia
 ------------------------------------------------------
-**antri** is indonesian for `waiting in line`. 
-It is a metaphor for task waiting for their turn
+**antri** is indonesian for `waiting in line`
 
 Features
 -------------------------------------------------------
 
 1. using http as protocol (fasthttp)
 2. individual commit/reject
+3. durability/at least once delivery (with task timeout)
 
 To Do:
 ------------------------------------------------------
 
-1. durability/at least once delivery (tracking)
+1. snapshot, for recovery -> following redis model
 2. dead letter queue
-3. snapshot, for recovery -> following redis model
-4. optional cluster (raft / etcd based)
-5. optional producer dedup
+3. optional cluster (raft / lock-service based)
 
 Notes
 ------------------------------------------------------

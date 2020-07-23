@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aarondwi/antri/priorityqueue"
+	"github.com/aarondwi/antri/ds"
 	"github.com/valyala/fasthttp"
 	"github.com/valyala/fasthttp/reuseport"
 )
@@ -54,7 +54,7 @@ func TestAddRetrieveCommit(t *testing.T) {
 	if res.StatusCode() != 200 {
 		t.Fatalf("Expected Status 200 OK, got %d", res.StatusCode())
 	}
-	var jsonRes priorityqueue.PqItem
+	var jsonRes ds.PqItem
 	err := json.Unmarshal(res.Body(), &jsonRes)
 	if err != nil {
 		t.Logf(string(res.Body()))
@@ -111,7 +111,7 @@ func TestAddRetrieveRejectThenReretrieve(t *testing.T) {
 	if res.StatusCode() != 200 {
 		t.Fatalf("Expected Status 200 OK, got %d", res.StatusCode())
 	}
-	var jsonRes priorityqueue.PqItem
+	var jsonRes ds.PqItem
 	err := json.Unmarshal(res.Body(), &jsonRes)
 	if err != nil {
 		t.Logf(string(res.Body()))
@@ -134,6 +134,70 @@ func TestAddRetrieveRejectThenReretrieve(t *testing.T) {
 	req.Reset()
 	res.Reset()
 	time.Sleep(6 * time.Second)
+	req.SetRequestURI(httpaddr + "/retrieve")
+	client.Do(req, res)
+	if res.StatusCode() != 200 {
+		t.Fatalf("Expected Status 200 OK, got %d", res.StatusCode())
+	}
+	err = json.Unmarshal(res.Body(), &jsonRes)
+	if err != nil {
+		t.Logf(string(res.Body()))
+		t.Fatalf("Should be a json of PqItem, but it is not")
+	}
+	if jsonRes.Key != keyToCheck {
+		t.Fatalf("Expected key %s, but got %s", keyToCheck, jsonRes.Key)
+	}
+}
+
+func TestAddRetrieveTimeoutThenReretrieve(t *testing.T) {
+	server := fasthttp.Server{
+		Handler:     NewAntriServerRouter(as).Handler,
+		Concurrency: 1,
+	}
+
+	ln, _ := reuseport.Listen("tcp4", addr)
+	defer ln.Close()
+	go func() { _ = server.Serve(ln) }()
+
+	req := fasthttp.AcquireRequest()
+	res := fasthttp.AcquireResponse()
+	defer fasthttp.ReleaseRequest(req)
+	defer fasthttp.ReleaseResponse(res)
+
+	req.SetRequestURI(httpaddr + "/add")
+	req.Header.SetMethod("POST")
+	req.PostArgs().AddBytesKV([]byte("value"), []byte("helloworld"))
+
+	client.Do(req, res)
+	if res.StatusCode() != 200 {
+		t.Logf(string(res.Body()))
+		t.Fatalf("Expected Status 200 OK, got %d", res.StatusCode())
+	}
+	if len(res.Body()) != 16 {
+		t.Fatalf("Expected OK, got %v", res.Body())
+	}
+	keyToCheck := string(res.Body())
+
+	req.Reset()
+	res.Reset()
+	req.SetRequestURI(httpaddr + "/retrieve")
+	client.Do(req, res)
+	if res.StatusCode() != 200 {
+		t.Fatalf("Expected Status 200 OK, got %d", res.StatusCode())
+	}
+	var jsonRes ds.PqItem
+	err := json.Unmarshal(res.Body(), &jsonRes)
+	if err != nil {
+		t.Logf(string(res.Body()))
+		t.Fatalf("Should be a json of PqItem, but it is not")
+	}
+	if jsonRes.Key != keyToCheck {
+		t.Fatalf("Expected key %s, but got %s", keyToCheck, jsonRes.Key)
+	}
+
+	time.Sleep(11 * time.Second) // buffer a bit of the 10s timeout
+	req.Reset()
+	res.Reset()
 	req.SetRequestURI(httpaddr + "/retrieve")
 	client.Do(req, res)
 	if res.StatusCode() != 200 {
@@ -244,7 +308,7 @@ func TestLockWaitFlow(t *testing.T) {
 		}
 
 		time.Sleep(1 * time.Second) // give time for 2 writes to come and get blocked
-		var jsonRes priorityqueue.PqItem
+		var jsonRes ds.PqItem
 		err := json.Unmarshal(res.Body(), &jsonRes)
 		if err != nil {
 			t.Logf(string(res.Body()))

@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aarondwi/antri/priorityqueue"
+	"github.com/aarondwi/antri/ds"
 	"github.com/aarondwi/antri/util"
 	"github.com/fasthttp/router"
 	"github.com/valyala/fasthttp"
@@ -28,21 +28,28 @@ func randStringBytes(n int) []byte {
 	return b
 }
 
+type itemTracker struct {
+	ScheduledAt int64
+	expireOn    int64
+	Key         string
+}
+
 type AntriServer struct {
 	// internal queue + stats
 	mutex           *sync.Mutex
 	notEmpty        *sync.Cond
 	notFull         *sync.Cond
-	pq              *priorityqueue.Pq
+	pq              *ds.Pq
 	maxsize         int
 	unfinishedTasks int // tracking
 
 	// inflight records + stats
 	// not using sync.Map or equivalent
 	// cause we also want to update the stats
-	inflightMutex   *sync.Mutex
-	inflightRecords map[string]*priorityqueue.PqItem
-	inflightTasks   int
+	inflightMutex    *sync.Mutex
+	inflightRecords  map[string]*ds.PqItem
+	inflightTimeoutQ []itemTracker
+	inflightTasks    int
 
 	// durability option
 	added *util.MutexedFile
@@ -67,7 +74,7 @@ func NewAntriServer(maxsize int) (*AntriServer, error) {
 
 	// inflight path
 	inflightMutex := sync.Mutex{}
-	inflightRecords := make(map[string]*priorityqueue.PqItem)
+	inflightRecords := make(map[string]*ds.PqItem)
 
 	// commitTask path
 	takenMutex := sync.Mutex{}
@@ -76,12 +83,12 @@ func NewAntriServer(maxsize int) (*AntriServer, error) {
 		log.Fatal(err)
 	}
 
-	return &AntriServer{
+	as := &AntriServer{
 		mutex:           &mutex,
 		notEmpty:        notEmpty,
 		notFull:         notFull,
 		unfinishedTasks: 0,
-		pq:              priorityqueue.NewPq(maxsize),
+		pq:              ds.NewPq(maxsize),
 		maxsize:         maxsize,
 		inflightMutex:   &inflightMutex,
 		inflightRecords: inflightRecords,
@@ -91,11 +98,13 @@ func NewAntriServer(maxsize int) (*AntriServer, error) {
 		taken: &util.MutexedFile{
 			M: &takenMutex,
 			F: takenFile},
-	}, nil
+	}
+	go as.taskTimeoutWatchdog()
+	return as, nil
 }
 
 // AddTask save the task message to wal
-// and add it to in-memory PriorityQueue
+// and add it to in-memory ds
 // Available via POST method, at /add
 func (as *AntriServer) AddTask(ctx *fasthttp.RequestCtx) {
 	// by default (for now), we gonna craete the key using 16-byte base62
@@ -125,7 +134,7 @@ func (as *AntriServer) AddTask(ctx *fasthttp.RequestCtx) {
 	for as.unfinishedTasks == as.maxsize {
 		as.notFull.Wait()
 	}
-	as.pq.Insert(&priorityqueue.PqItem{
+	as.pq.Insert(&ds.PqItem{
 		Key:         taskKeyStr,
 		Value:       string(ctx.FormValue("value")),
 		ScheduledAt: time.Now().Unix() + int64(ctx.PostArgs().GetUintOrZero("secondsfromnow")),
@@ -138,12 +147,67 @@ func (as *AntriServer) AddTask(ctx *fasthttp.RequestCtx) {
 	ctx.WriteString(taskKeyStr)
 }
 
-// RetrieveTask takes a task from in-memory priorityqueue
+func (as *AntriServer) removeFromTimeoutQ(scheduledAt int64, key string) {
+	i := 0
+	found := false
+	for ; i < len(as.inflightTimeoutQ); i++ {
+		if as.inflightTimeoutQ[i].ScheduledAt == scheduledAt &&
+			as.inflightTimeoutQ[i].Key == key {
+			found = true
+			break
+		}
+	}
+	if found {
+		as.inflightTimeoutQ = append(as.inflightTimeoutQ[:i], as.inflightTimeoutQ[i+1:]...)
+	}
+}
+
+func (as *AntriServer) taskTimeoutWatchdog() {
+	// cause we always append to back
+	// we can be sure that this array is sorted on expireOn
+	ticker := time.NewTicker(10 * time.Millisecond)
+	for {
+		select {
+		case <-ticker.C:
+			var res *ds.PqItem
+
+			// remove from inflight
+			as.inflightMutex.Lock()
+			currentTime := time.Now().Unix()
+			for {
+				if as.inflightTasks > 0 && as.inflightTimeoutQ[0].expireOn < currentTime {
+					key := as.inflightTimeoutQ[0].Key
+					as.inflightTimeoutQ = as.inflightTimeoutQ[1:]
+					as.inflightTasks--
+					res = as.inflightRecords[key]
+					delete(as.inflightRecords, key)
+				} else {
+					break
+				}
+			}
+			as.inflightMutex.Unlock()
+
+			if res != nil {
+				// add back to waiting
+				as.mutex.Lock()
+				for as.unfinishedTasks == as.maxsize {
+					as.notFull.Wait()
+				}
+				as.pq.Insert(res)
+				as.unfinishedTasks++
+				as.notEmpty.Signal()
+				as.mutex.Unlock()
+			}
+		}
+	}
+}
+
+// RetrieveTask takes a task from in-memory ds
 // and move it to in-memory map
 // Available via GET method, at /retrieve
 func (as *AntriServer) RetrieveTask(ctx *fasthttp.RequestCtx) {
-	var res *priorityqueue.PqItem
-	var placeholder *priorityqueue.PqItem
+	var res *ds.PqItem
+	var placeholder *ds.PqItem
 	var timediff int64
 
 	// lock/unlock manually
@@ -176,6 +240,13 @@ func (as *AntriServer) RetrieveTask(ctx *fasthttp.RequestCtx) {
 	// the at-least-once guarantee is via log
 	as.inflightMutex.Lock()
 	as.inflightRecords[res.Key] = res
+	as.inflightTimeoutQ = append(
+		as.inflightTimeoutQ,
+		itemTracker{
+			Key:         res.Key,
+			ScheduledAt: res.ScheduledAt,
+			expireOn:    time.Now().Unix() + 10,
+		})
 	as.inflightTasks++
 	as.inflightMutex.Unlock()
 
@@ -191,9 +262,11 @@ func (as *AntriServer) RetrieveTask(ctx *fasthttp.RequestCtx) {
 func (as *AntriServer) CommitTask(ctx *fasthttp.RequestCtx) {
 	taskKey := ctx.UserValue("taskKey").(string)
 	as.inflightMutex.Lock()
-	_, ok := as.inflightRecords[taskKey]
+	val, ok := as.inflightRecords[taskKey]
 	if ok {
 		delete(as.inflightRecords, taskKey)
+		as.removeFromTimeoutQ(val.ScheduledAt, taskKey)
+		as.inflightTasks--
 	}
 	as.inflightMutex.Unlock()
 
@@ -223,6 +296,8 @@ func (as *AntriServer) RejectTask(ctx *fasthttp.RequestCtx) {
 	val, ok := as.inflightRecords[taskKey]
 	if ok {
 		delete(as.inflightRecords, taskKey)
+		as.removeFromTimeoutQ(val.ScheduledAt, taskKey)
+		as.inflightTasks--
 	}
 	as.inflightMutex.Unlock()
 
