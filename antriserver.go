@@ -143,7 +143,6 @@ func (as *AntriServer) AddTask(ctx *fasthttp.RequestCtx) {
 	as.notEmpty.Signal()
 	as.mutex.Unlock()
 
-	log.Println(taskKeyStr)
 	ctx.WriteString(taskKeyStr)
 }
 
@@ -324,6 +323,7 @@ func (as *AntriServer) RejectTask(ctx *fasthttp.RequestCtx) {
 }
 
 // NewAntriServerRouter returns fasthttp/router that already set with AntriServer handler
+// Also seed the rng
 func NewAntriServerRouter(as *AntriServer) *router.Router {
 	rand.Seed(time.Now().UTC().UnixNano())
 	r := router.New()

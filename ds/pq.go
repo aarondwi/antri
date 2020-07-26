@@ -1,6 +1,8 @@
 package ds
 
 // PqItem is our task object
+//
+// This implementation is NOT thread-safe
 type PqItem struct {
 	ScheduledAt int64  `json:"scheduledAt"`
 	Key         string `json:"key"`
@@ -12,7 +14,7 @@ type PqItem struct {
 // the sort order is determined by ScheduledAt
 // with smaller value returned earlier
 //
-// This struct is NOT thread-safe
+// This implementation is NOT thread-safe
 type Pq struct {
 	heapArray []*PqItem
 	size      int
