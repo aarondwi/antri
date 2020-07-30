@@ -67,7 +67,7 @@ func NewAntriServer(maxsize int) (*AntriServer, error) {
 	notFull := sync.NewCond(&mutex)
 
 	addedMutex := sync.Mutex{}
-	addedFile, err := os.OpenFile("added.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	addedFile, err := os.OpenFile("added.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY|os.O_SYNC, 0644)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -117,15 +117,18 @@ func (as *AntriServer) AddTask(ctx *fasthttp.RequestCtx) {
 	taskKey := randStringBytes(16)
 	taskKeyStr := string(taskKey)
 
+	item := &ds.PqItem{
+		Key:         taskKeyStr,
+		Value:       string(ctx.FormValue("value")),
+		ScheduledAt: time.Now().Unix() + int64(ctx.PostArgs().GetUintOrZero("secondsfromnow")),
+		Retries:     0}
+
 	// separate commit point
 	// dont wanna block read because of fsync
 	// after this point, it is considered committed
 	// for now, we use text files for wal
 	as.added.M.Lock()
-	as.added.F.Write(taskKey)
-	as.added.F.Write(newlineByteSlice)
-	as.added.F.Write(append(ctx.FormValue("value"), newlineByte))
-	as.added.F.Sync()
+	as.pq.WritePqItemToLog(as.added.F, item)
 	as.added.M.Unlock()
 
 	// lock/unlock manually
@@ -134,11 +137,7 @@ func (as *AntriServer) AddTask(ctx *fasthttp.RequestCtx) {
 	for as.unfinishedTasks == as.maxsize {
 		as.notFull.Wait()
 	}
-	as.pq.Insert(&ds.PqItem{
-		Key:         taskKeyStr,
-		Value:       string(ctx.FormValue("value")),
-		ScheduledAt: time.Now().Unix() + int64(ctx.PostArgs().GetUintOrZero("secondsfromnow")),
-		Retries:     0})
+	as.pq.Insert(item)
 	as.unfinishedTasks++
 	as.notEmpty.Signal()
 	as.mutex.Unlock()
@@ -171,8 +170,8 @@ func (as *AntriServer) taskTimeoutWatchdog() {
 			var res *ds.PqItem
 
 			// remove from inflight
-			as.inflightMutex.Lock()
 			currentTime := time.Now().Unix()
+			as.inflightMutex.Lock()
 			for {
 				if as.inflightTasks > 0 && as.inflightTimeoutQ[0].expireOn < currentTime {
 					key := as.inflightTimeoutQ[0].Key

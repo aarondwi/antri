@@ -1,6 +1,8 @@
 package ds
 
 import (
+	"bytes"
+	"log"
 	"testing"
 	"time"
 )
@@ -81,5 +83,32 @@ func TestPq(t *testing.T) {
 	temporary = pq.Pop().Value
 	if temporary != "fifth" {
 		t.Fatalf("Expected %s, got %s", "fifth", temporary)
+	}
+}
+
+func TestWriteReadLog(t *testing.T) {
+	now := time.Now().Unix()
+	pq := NewPq(10)
+	buf := new(bytes.Buffer)
+
+	src := &PqItem{
+		ScheduledAt: now,
+		Key:         "ありがとう ございます",
+		Value:       "ど いたしまして",
+		Retries:     7}
+
+	ok := pq.WritePqItemToLog(buf, src)
+	if !ok {
+		log.Fatalf("if success should return `true`, but it is `false`")
+	}
+	dst := pq.ReadPqItemFromLog(buf)
+	if dst == nil {
+		log.Fatalf("Should not be nil!")
+	}
+	if src.ScheduledAt != dst.ScheduledAt ||
+		src.Key != dst.Key ||
+		src.Value != dst.Value ||
+		src.Retries != dst.Retries {
+		log.Fatalf("Expected %v, got %v", src, dst)
 	}
 }
