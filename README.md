@@ -1,5 +1,5 @@
 # antri
-toy implementation of scheduled-task queue, primarily intended for learning
+toy implementation of asynchronous task queue, primarily intended for learning
 
 Trivia
 ------------------------------------------------------
@@ -11,6 +11,7 @@ Features
 1. using http as protocol (fasthttp) -> pull model
 2. individual commit/reject
 3. durability/at least once delivery (with task timeout)
+4. task scheduling/visibility, e.g. how many seconds from now before the task can be retrieved
 
 To Do:
 ------------------------------------------------------
@@ -59,12 +60,10 @@ Possible optimization
 
     * currently using os.O_SYNC flag, but on windows, not all golang compiler map O_SYNC to windows equivalent, so it is currently unsafe on windows.
 
-2. find way to reduce type-casting between string and []byte, inside `AddTask` (but need json representation as respond, and binary becomes base64)
-3. find way to reduce lock contention when putting/taking from queue? what has come to mind:
+2. find way to reduce lock contention when putting/taking from queue? what has come to mind:
 
-    * change lock pattern with logical lock + latch
     * change pq and sl to use ConcurrentSkipList + unroll the skiplist
     * try simple array as internal DS, but lost the schedule feature
     * use proper embedded database, e.g. rocksdb/badgerdb
 
-4. sync.Pool to reduce allocation
+3. sync.Pool to reduce allocation

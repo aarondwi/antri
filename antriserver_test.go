@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -66,7 +67,7 @@ func TestAddRetrieveCommit(t *testing.T) {
 
 	req.Reset()
 	res.Reset()
-	req.SetRequestURI(httpaddr + "/commit/" + keyToCheck)
+	req.SetRequestURI(fmt.Sprintf("%s/%s/commit", httpaddr, keyToCheck))
 	req.Header.SetMethod("POST")
 	client.Do(req, res)
 
@@ -123,7 +124,7 @@ func TestAddRetrieveRejectThenReretrieve(t *testing.T) {
 
 	req.Reset()
 	res.Reset()
-	req.SetRequestURI(httpaddr + "/reject/" + keyToCheck)
+	req.SetRequestURI(fmt.Sprintf("%s/%s/reject", httpaddr, keyToCheck))
 	req.Header.SetMethod("POST")
 	client.Do(req, res)
 

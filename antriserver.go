@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/aarondwi/antri/ds"
-	"github.com/aarondwi/antri/util"
 	"github.com/fasthttp/router"
 	"github.com/valyala/fasthttp"
 )
@@ -52,8 +51,8 @@ type AntriServer struct {
 	inflightTasks    int
 
 	// durability option
-	added *util.MutexedFile
-	taken *util.MutexedFile
+	added *MutexedFile
+	taken *MutexedFile
 }
 
 func NewAntriServer(maxsize int) (*AntriServer, error) {
@@ -78,7 +77,7 @@ func NewAntriServer(maxsize int) (*AntriServer, error) {
 
 	// commitTask path
 	takenMutex := sync.Mutex{}
-	takenFile, err := os.OpenFile("taken.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	takenFile, err := os.OpenFile("taken.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY|os.O_SYNC, 0644)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -92,10 +91,10 @@ func NewAntriServer(maxsize int) (*AntriServer, error) {
 		maxsize:         maxsize,
 		inflightMutex:   &inflightMutex,
 		inflightRecords: inflightRecords,
-		added: &util.MutexedFile{
+		added: &MutexedFile{
 			M: &addedMutex,
 			F: addedFile},
-		taken: &util.MutexedFile{
+		taken: &MutexedFile{
 			M: &takenMutex,
 			F: takenFile},
 	}
@@ -114,8 +113,7 @@ func (as *AntriServer) AddTask(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	taskKey := randStringBytes(16)
-	taskKeyStr := string(taskKey)
+	taskKeyStr := string(randStringBytes(16))
 
 	item := &ds.PqItem{
 		Key:         taskKeyStr,
@@ -128,7 +126,10 @@ func (as *AntriServer) AddTask(ctx *fasthttp.RequestCtx) {
 	// after this point, it is considered committed
 	// for now, we use text files for wal
 	as.added.M.Lock()
-	as.pq.WritePqItemToLog(as.added.F, item)
+	ok := WritePqItemToLog(as.added.F, item)
+	if !ok {
+		panic("failed writing to log!")
+	}
 	as.added.M.Unlock()
 
 	// lock/unlock manually
@@ -277,9 +278,10 @@ func (as *AntriServer) CommitTask(ctx *fasthttp.RequestCtx) {
 
 	// meaning found, commit to wal
 	as.taken.M.Lock()
-	as.taken.F.Write(ctx.FormValue("key"))
-	as.taken.F.Write(newlineByteSlice)
-	as.taken.F.Sync()
+	ok = WriteCommittedKeyToLog(as.taken.F, ctx.FormValue("key"))
+	if !ok {
+		panic("failed to commit key!")
+	}
 	as.taken.M.Unlock()
 
 	ctx.WriteString("OK")
@@ -328,8 +330,8 @@ func NewAntriServerRouter(as *AntriServer) *router.Router {
 	r := router.New()
 	r.POST("/add", as.AddTask)
 	r.GET("/retrieve", as.RetrieveTask)
-	r.POST("/commit/{taskKey}", as.CommitTask)
-	r.POST("/reject/{taskKey}", as.RejectTask)
+	r.POST("/{taskKey}/commit", as.CommitTask)
+	r.POST("/{taskKey}/reject", as.RejectTask)
 
 	return r
 }
