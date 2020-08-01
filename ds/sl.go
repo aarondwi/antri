@@ -1,8 +1,8 @@
 package ds
 
 import (
-	"log"
 	"math/rand"
+	"strings"
 )
 
 var (
@@ -14,16 +14,14 @@ var (
 //
 // This implementation is NOT thread-safe
 type SlItem struct {
-	ScheduledAt int64
-	Key         string
-	level       int
-	after       []*SlItem
-	before      []*SlItem
+	Key    string
+	level  int
+	after  []*SlItem
+	before []*SlItem
 }
 
 // Sl is our skiplist implementation
-// we need custom one because we accept non-unique value for ordering
-// and the API required does not need for batch retrieval
+// This API does not implement batch retrieval
 // rather, more like skiplist-based priority queue
 //
 // This implementation is NOT thread-safe
@@ -33,17 +31,17 @@ type Sl struct {
 
 // find searches the position of the node just before the scheduledAt
 // used when inserting
-func (sl *Sl) findUntilLevel(scheduledAt int64, targetLevel int) *SlItem {
+func (sl *Sl) findUntilLevel(key string, targetLevel int) *SlItem {
 	if sl.head == nil {
 		return nil
 	}
 	current := sl.head
 
-	if scheduledAt < sl.head.ScheduledAt {
+	if strings.Compare(key, sl.head.Key) < 0 {
 		return nil
 	}
 	for i := skiplistHeight - 1; i >= targetLevel; i-- {
-		for current.after[i] != nil && current.after[i].ScheduledAt <= scheduledAt {
+		for current.after[i] != nil && strings.Compare(key, current.after[i].Key) > 0 {
 			current = current.after[i]
 		}
 	}
@@ -51,20 +49,19 @@ func (sl *Sl) findUntilLevel(scheduledAt int64, targetLevel int) *SlItem {
 }
 
 // find is a wrapper for findUntilLevel 0
-func (sl *Sl) find(scheduledAt int64) *SlItem {
-	return sl.findUntilLevel(scheduledAt, 0)
+func (sl *Sl) find(key string) *SlItem {
+	return sl.findUntilLevel(key, 0)
 }
 
 // Insert our SlItem to the skiplist
 // at the same time, also manage all the pointer
-func (sl *Sl) Insert(scheduledAt int64, key string) {
+func (sl *Sl) Insert(key string) {
 	newNode := &SlItem{
-		ScheduledAt: scheduledAt,
-		Key:         key,
-		after:       make([]*SlItem, 4),
-		before:      make([]*SlItem, 4),
+		Key:    key,
+		after:  make([]*SlItem, 4),
+		before: make([]*SlItem, 4),
 	}
-	current := sl.find(scheduledAt)
+	current := sl.find(key)
 
 	if current == nil && sl.head == nil {
 		// be the head, and the only node in the skiplist
@@ -92,7 +89,7 @@ func (sl *Sl) Insert(scheduledAt int64, key string) {
 				break
 			}
 			if rng < probability {
-				newplace = sl.findUntilLevel(scheduledAt, currentLevel)
+				newplace = sl.findUntilLevel(key, currentLevel)
 				if newplace.after[currentLevel] != nil {
 					newplace.after[currentLevel].before[currentLevel] = newNode
 					newNode.after[currentLevel] = newplace
@@ -109,68 +106,37 @@ func (sl *Sl) Insert(scheduledAt int64, key string) {
 
 // findExact searches the position of the node with the same key and scheduledAt
 // used when deleting
-func (sl *Sl) findExact(scheduledAt int64, key string) *SlItem {
+func (sl *Sl) findExact(key string) *SlItem {
 	if sl.head == nil {
 		return nil
 	}
 	current := sl.head
 
 	found := false
-	sameTime := false
 	for i := skiplistHeight - 1; i >= 0; i-- {
 		for {
-			if current.ScheduledAt == scheduledAt && current.Key == key {
-				found = true
-				break
-			}
-			// there is a case where this can miss
-			// because the time is allowed to be the same
-			// and the key to be deleted happened to be jumped over
-			//
-			// Example:
-			// Node1		Node2		Node3
-			// now ------------> now
-			// now ------now---> now
-			//  1         2       3
-			//
-			// another case if the time is different, but jumping
-			// so far, haven't met that case
-			if current.after[i] != nil && current.after[i].ScheduledAt < scheduledAt {
-				current = current.after[i]
-			} else if current.after[i] != nil && current.after[i].ScheduledAt == scheduledAt {
-				sameTime = true
-				break
-			} else {
-				break
-			}
-		}
-		if found || sameTime {
-			break
-		}
-	}
-
-	// need to traverse all if sameTime
-	if sameTime {
-		for current.after[0] != nil && current.after[0].ScheduledAt == scheduledAt {
 			if current.Key == key {
 				found = true
 				break
 			}
-			current = current.after[0]
+			if current.after[i] != nil &&
+				strings.Compare(key, current.after[i].Key) >= 0 {
+				current = current.after[i]
+			} else {
+				break
+			}
 		}
-	}
-
-	if found {
-		return current
+		if found {
+			return current
+		}
 	}
 	return nil
 }
 
 // Delete our SlItem to the skiplist
 // at the same time, also manage all the pointer
-func (sl *Sl) Delete(scheduledAt int64, key string) {
-	log.Printf("Deleting: %s", key)
-	node := sl.findExact(scheduledAt, key)
+func (sl *Sl) Delete(key string) {
+	node := sl.findExact(key)
 	if node != nil {
 		if node == sl.head {
 			// we separate the case when the deleted is head
@@ -200,16 +166,16 @@ func (sl *Sl) Delete(scheduledAt int64, key string) {
 }
 
 // Pop the earliest item in the skiplist, in our case, the most front
-func (sl *Sl) Pop() *SlItem {
+func (sl *Sl) Pop() (string, bool) {
 	if sl.head == nil { // no item
-		return nil
+		return "", false
 	}
 	previousHead := sl.head
 
 	// last one item
 	if sl.head.after[0] == nil {
 		sl.head = nil
-		return previousHead
+		return previousHead.Key, true
 	}
 
 	// the next one in level 0 gonna be the head
@@ -228,5 +194,5 @@ func (sl *Sl) Pop() *SlItem {
 		sl.head.before[i] = nil
 	}
 
-	return previousHead
+	return previousHead.Key, true
 }

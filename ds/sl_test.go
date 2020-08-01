@@ -1,8 +1,10 @@
 package ds
 
 import (
+	"fmt"
 	"log"
 	"math/rand"
+	"strings"
 	"testing"
 	"time"
 )
@@ -15,55 +17,55 @@ func TestSkipListInsertAndPop(t *testing.T) {
 	time.Sleep(1 * time.Second)
 
 	currentTime := time.Now().Unix()
-	sl.Insert(currentTime, "key1")
-	sl.Insert(currentTime, "key2")
-	sl.Insert(currentTime, "key3")
+	sl.Insert(fmt.Sprintf("%d_%s", currentTime, "key1"))
+	sl.Insert(fmt.Sprintf("%d_%s", currentTime, "key2"))
+	sl.Insert(fmt.Sprintf("%d_%s", currentTime, "key3"))
 	time.Sleep(1 * time.Second)
 
-	sl.Insert(afterTheFirstSec, "in_the_middle")
+	sl.Insert(fmt.Sprintf("%d_%s", afterTheFirstSec, "in_the_middle"))
 
 	currentTime = time.Now().Unix()
-	sl.Insert(currentTime, "key4")
-	sl.Insert(currentTime, "key5")
+	sl.Insert(fmt.Sprintf("%d_%s", currentTime, "key4"))
+	sl.Insert(fmt.Sprintf("%d_%s", currentTime, "key5"))
 
-	result := sl.Pop()
-	if result.Key != "in_the_middle" {
-		log.Fatalf("Ordering failed, should be `in_the_middle`, but got %s", result.Key)
+	result, ok := sl.Pop()
+	if !ok || !strings.Contains(result, "in_the_middle") {
+		log.Fatalf("Ordering failed, should contain `in_the_middle`, but got %s", result)
 	}
 
-	result = sl.Pop()
-	if result.Key != "key1" {
-		log.Fatalf("Ordering failed, should be `key1`, but got %s", result.Key)
+	result, ok = sl.Pop()
+	if !ok || !strings.Contains(result, "key1") {
+		log.Fatalf("Ordering failed, should contain `key1`, but got %s", result)
 	}
-	result = sl.Pop()
-	if result.Key != "key2" {
-		log.Fatalf("Ordering failed, should be `key2`, but got %s", result.Key)
+	result, ok = sl.Pop()
+	if !ok || !strings.Contains(result, "key2") {
+		log.Fatalf("Ordering failed, should contain `key2`, but got %s", result)
 	}
-	result = sl.Pop()
-	if result.Key != "key3" {
-		log.Fatalf("Ordering failed, should be `key3`, but got %s", result.Key)
+	result, ok = sl.Pop()
+	if !ok || !strings.Contains(result, "key3") {
+		log.Fatalf("Ordering failed, should contain `key3`, but got %s", result)
 	}
-	result = sl.Pop()
-	if result.Key != "key4" {
-		log.Fatalf("Ordering failed, should be `key4`, but got %s", result.Key)
+	result, ok = sl.Pop()
+	if !ok || !strings.Contains(result, "key4") {
+		log.Fatalf("Ordering failed, should contain `key4`, but got %s", result)
 	}
-	result = sl.Pop()
-	if result.Key != "key5" {
-		log.Fatalf("Ordering failed, should be `key5`")
+	result, ok = sl.Pop()
+	if !ok || !strings.Contains(result, "key5") {
+		log.Fatalf("Ordering failed, should contain `key5`")
 	}
 }
 
 func TestPopEmptySkipList(t *testing.T) {
 	rand.Seed(time.Now().UTC().UnixNano())
 	sl := &Sl{}
-	result := sl.Pop()
-	if result != nil {
-		log.Fatalf("Should be nil, but got %v", result)
+	result, ok := sl.Pop()
+	if ok {
+		log.Fatalf("Should not be found, but it is, and got %v", result)
 	}
 
-	result = sl.findExact(time.Now().Unix(), "nothing")
-	if result != nil {
-		log.Fatalf("Should be nil, but got %v", result)
+	node := sl.findExact("nothing")
+	if node != nil {
+		log.Fatalf("Should be nil, but got %v", node)
 	}
 }
 
@@ -75,33 +77,33 @@ func TestSkipListDelete(t *testing.T) {
 	time.Sleep(1 * time.Second)
 
 	currentTime := time.Now().Unix()
-	sl.Insert(currentTime, "key1")
-	sl.Insert(currentTime, "key2")
-	sl.Insert(currentTime, "key3")
+	sl.Insert(fmt.Sprintf("%d_%s", currentTime, "key1"))
+	sl.Insert(fmt.Sprintf("%d_%s", currentTime, "key2"))
+	sl.Insert(fmt.Sprintf("%d_%s", currentTime, "key3"))
 	time.Sleep(1 * time.Second)
 	oldTime := currentTime
 
-	sl.Insert(afterTheFirstSec, "in_the_middle")
+	sl.Insert(fmt.Sprintf("%d_%s", afterTheFirstSec, "in_the_middle"))
 
 	currentTime = time.Now().Unix()
-	sl.Insert(currentTime, "key4")
-	sl.Insert(currentTime, "key5")
+	sl.Insert(fmt.Sprintf("%d_%s", currentTime, "key4"))
+	sl.Insert(fmt.Sprintf("%d_%s", currentTime, "key5"))
 
-	sl.Delete(afterTheFirstSec, "in_the_middle")
-	sl.Delete(oldTime, "not_found")
-	sl.Delete(oldTime, "key2")
-	sl.Delete(currentTime, "key5")
+	sl.Delete(fmt.Sprintf("%d_%s", afterTheFirstSec, "in_the_middle"))
+	sl.Delete(fmt.Sprintf("%d_%s", oldTime, "notfound"))
+	sl.Delete(fmt.Sprintf("%d_%s", oldTime, "key2"))
+	sl.Delete(fmt.Sprintf("%d_%s", currentTime, "key5"))
 
-	result := sl.Pop()
-	if result.Key != "key1" {
-		log.Fatalf("Ordering failed, should be `key1`, but got %s", result.Key)
+	result, ok := sl.Pop()
+	if !ok || !strings.Contains(result, "key1") {
+		log.Fatalf("Ordering failed, should contain `key1`, but got %s", result)
 	}
-	result = sl.Pop()
-	if result.Key != "key3" {
-		log.Fatalf("Ordering failed, should be `key3`, but got %s", result.Key)
+	result, ok = sl.Pop()
+	if !ok || !strings.Contains(result, "key3") {
+		log.Fatalf("Ordering failed, should contain `key3`, but got %s", result)
 	}
-	result = sl.Pop()
-	if result.Key != "key4" {
-		log.Fatalf("Ordering failed, should be `key4`, but got %s", result.Key)
+	result, ok = sl.Pop()
+	if !ok || !strings.Contains(result, "key4") {
+		log.Fatalf("Ordering failed, should contain `key4`, but got %s", result)
 	}
 }
