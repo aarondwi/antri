@@ -18,6 +18,11 @@ var newlineByte = byte('\n')
 var newlineByteSlice = []byte("\n")
 var letterBytes = []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
 
+type MutexedFile struct {
+	M *sync.Mutex
+	F *os.File
+}
+
 func randStringBytes(n int) []byte {
 	b := make([]byte, n)
 	l := len(letterBytes)
@@ -27,37 +32,31 @@ func randStringBytes(n int) []byte {
 	return b
 }
 
-type itemTracker struct {
-	ScheduledAt int64
-	expireOn    int64
-	Key         string
-}
-
 type AntriServer struct {
-	// internal queue + stats
-	mutex           *sync.Mutex
-	notEmpty        *sync.Cond
-	notFull         *sync.Cond
-	pq              *ds.Pq
-	maxsize         int
-	unfinishedTasks int // tracking
+	// internal queue
+	mutex    *sync.Mutex
+	notEmpty *sync.Cond
+	notFull  *sync.Cond
+	pq       *ds.Pq
+	maxsize  int
 
-	// inflight records + stats
 	// not using sync.Map or equivalent
 	// cause we also want to update the stats
-	inflightMutex    *sync.Mutex
-	inflightRecords  map[string]*ds.PqItem
-	inflightTimeoutQ []itemTracker
-	inflightTasks    int
+	inflightMutex   *sync.Mutex
+	inflightRecords *ds.OrderedMap
+	taskTimeout     int
 
 	// durability option
 	added *MutexedFile
 	taken *MutexedFile
 }
 
-func NewAntriServer(maxsize int) (*AntriServer, error) {
+func NewAntriServer(maxsize, taskTimeout int) (*AntriServer, error) {
 	if maxsize <= 0 {
 		return nil, fmt.Errorf("maxsize should be positive, received %d", maxsize)
+	}
+	if taskTimeout <= 0 {
+		return nil, fmt.Errorf("taskTimeout should be positive, received %d", maxsize)
 	}
 
 	// addTask + retrieveTask path
@@ -73,7 +72,7 @@ func NewAntriServer(maxsize int) (*AntriServer, error) {
 
 	// inflight path
 	inflightMutex := sync.Mutex{}
-	inflightRecords := make(map[string]*ds.PqItem)
+	inflightRecords := ds.NewOrderedMap(int64(taskTimeout))
 
 	// commitTask path
 	takenMutex := sync.Mutex{}
@@ -86,7 +85,6 @@ func NewAntriServer(maxsize int) (*AntriServer, error) {
 		mutex:           &mutex,
 		notEmpty:        notEmpty,
 		notFull:         notFull,
-		unfinishedTasks: 0,
 		pq:              ds.NewPq(maxsize),
 		maxsize:         maxsize,
 		inflightMutex:   &inflightMutex,
@@ -135,30 +133,20 @@ func (as *AntriServer) AddTask(ctx *fasthttp.RequestCtx) {
 	// lock/unlock manually
 	// we dont want unlock to wait for fmt
 	as.mutex.Lock()
-	for as.unfinishedTasks == as.maxsize {
+	for as.pq.HeapSize() == as.maxsize {
 		as.notFull.Wait()
 	}
 	as.pq.Insert(item)
-	as.unfinishedTasks++
 	as.notEmpty.Signal()
 	as.mutex.Unlock()
 
 	ctx.WriteString(taskKeyStr)
 }
 
-func (as *AntriServer) removeFromTimeoutQ(scheduledAt int64, key string) {
-	i := 0
-	found := false
-	for ; i < len(as.inflightTimeoutQ); i++ {
-		if as.inflightTimeoutQ[i].ScheduledAt == scheduledAt &&
-			as.inflightTimeoutQ[i].Key == key {
-			found = true
-			break
-		}
-	}
-	if found {
-		as.inflightTimeoutQ = append(as.inflightTimeoutQ[:i], as.inflightTimeoutQ[i+1:]...)
-	}
+func (as *AntriServer) removeFromTimeoutQ(key string) {
+	as.inflightMutex.Lock()
+	as.inflightRecords.Delete(key)
+	as.inflightMutex.Unlock()
 }
 
 func (as *AntriServer) taskTimeoutWatchdog() {
@@ -173,27 +161,22 @@ func (as *AntriServer) taskTimeoutWatchdog() {
 			// remove from inflight
 			currentTime := time.Now().Unix()
 			as.inflightMutex.Lock()
-			for {
-				if as.inflightTasks > 0 && as.inflightTimeoutQ[0].expireOn < currentTime {
-					key := as.inflightTimeoutQ[0].Key
-					as.inflightTimeoutQ = as.inflightTimeoutQ[1:]
-					as.inflightTasks--
-					res = as.inflightRecords[key]
-					delete(as.inflightRecords, key)
-				} else {
-					break
-				}
+			for as.inflightRecords.Length() > 0 &&
+				as.inflightRecords.PeekExpire() < currentTime {
+
+				// no need to check the err
+				// undoubtedly gonna get one
+				res, _ = as.inflightRecords.Pop()
 			}
 			as.inflightMutex.Unlock()
 
 			if res != nil {
 				// add back to waiting
 				as.mutex.Lock()
-				for as.unfinishedTasks == as.maxsize {
+				for as.pq.HeapSize() == as.maxsize {
 					as.notFull.Wait()
 				}
 				as.pq.Insert(res)
-				as.unfinishedTasks++
 				as.notEmpty.Signal()
 				as.mutex.Unlock()
 			}
@@ -213,7 +196,7 @@ func (as *AntriServer) RetrieveTask(ctx *fasthttp.RequestCtx) {
 	// we dont want unlock to wait for fmt
 	as.mutex.Lock()
 	for {
-		for as.unfinishedTasks == 0 {
+		for as.pq.HeapSize() == 0 {
 			as.notEmpty.Wait()
 		}
 		// won't be nil, as we wait for unfinishedTasks to be > 0
@@ -229,7 +212,6 @@ func (as *AntriServer) RetrieveTask(ctx *fasthttp.RequestCtx) {
 			continue
 		}
 		res = as.pq.Pop()
-		as.unfinishedTasks--
 		as.notFull.Signal()
 		as.mutex.Unlock()
 		break
@@ -238,15 +220,7 @@ func (as *AntriServer) RetrieveTask(ctx *fasthttp.RequestCtx) {
 	// only hold in-memory
 	// the at-least-once guarantee is via log
 	as.inflightMutex.Lock()
-	as.inflightRecords[res.Key] = res
-	as.inflightTimeoutQ = append(
-		as.inflightTimeoutQ,
-		itemTracker{
-			Key:         res.Key,
-			ScheduledAt: res.ScheduledAt,
-			expireOn:    time.Now().Unix() + 10,
-		})
-	as.inflightTasks++
+	as.inflightRecords.Insert(res.Key, res)
 	as.inflightMutex.Unlock()
 
 	// this should NOT error
@@ -261,11 +235,9 @@ func (as *AntriServer) RetrieveTask(ctx *fasthttp.RequestCtx) {
 func (as *AntriServer) CommitTask(ctx *fasthttp.RequestCtx) {
 	taskKey := ctx.UserValue("taskKey").(string)
 	as.inflightMutex.Lock()
-	val, ok := as.inflightRecords[taskKey]
+	_, ok := as.inflightRecords.Get(taskKey)
 	if ok {
-		delete(as.inflightRecords, taskKey)
-		as.removeFromTimeoutQ(val.ScheduledAt, taskKey)
-		as.inflightTasks--
+		as.inflightRecords.Delete(taskKey)
 	}
 	as.inflightMutex.Unlock()
 
@@ -293,11 +265,9 @@ func (as *AntriServer) CommitTask(ctx *fasthttp.RequestCtx) {
 func (as *AntriServer) RejectTask(ctx *fasthttp.RequestCtx) {
 	taskKey := ctx.UserValue("taskKey").(string)
 	as.inflightMutex.Lock()
-	val, ok := as.inflightRecords[taskKey]
+	val, ok := as.inflightRecords.Get(taskKey)
 	if ok {
-		delete(as.inflightRecords, taskKey)
-		as.removeFromTimeoutQ(val.ScheduledAt, taskKey)
-		as.inflightTasks--
+		as.inflightRecords.Delete(taskKey)
 	}
 	as.inflightMutex.Unlock()
 
@@ -312,11 +282,10 @@ func (as *AntriServer) RejectTask(ctx *fasthttp.RequestCtx) {
 	val.Retries++
 	val.ScheduledAt = time.Now().Unix() + 5
 	as.mutex.Lock()
-	for as.unfinishedTasks == as.maxsize {
+	for as.pq.HeapSize() == as.maxsize {
 		as.notFull.Wait()
 	}
 	as.pq.Insert(val)
-	as.unfinishedTasks++
 	as.notEmpty.Signal()
 	as.mutex.Unlock()
 

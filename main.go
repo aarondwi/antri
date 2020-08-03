@@ -7,7 +7,7 @@ import (
 )
 
 func main() {
-	as, _ := NewAntriServer(50_000)
+	as, _ := NewAntriServer(50_000, 10)
 
 	server := fasthttp.Server{
 		Handler:     NewAntriServerRouter(as).Handler,

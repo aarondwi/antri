@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"sync"
 	"testing"
 	"time"
@@ -16,8 +17,20 @@ var (
 	client   = &fasthttp.Client{}
 	addr     = "127.0.0.1:3000"
 	httpaddr = "http://127.0.0.1:3000"
-	as, _    = NewAntriServer(10)
+	as, _    = NewAntriServer(10, 1)
 )
+
+func TestAntriServerParameter(t *testing.T) {
+	_, err := NewAntriServer(0, 1)
+	if err == nil {
+		log.Fatalf("maxsize should be positive, but it is not returning an error")
+	}
+
+	_, err = NewAntriServer(1, -1)
+	if err == nil {
+		log.Fatalf("taskTImeout negative value should be error, but it is not")
+	}
+}
 
 func TestAddRetrieveCommit(t *testing.T) {
 	server := fasthttp.Server{
@@ -196,11 +209,13 @@ func TestAddRetrieveTimeoutThenReretrieve(t *testing.T) {
 		t.Fatalf("Expected key %s, but got %s", keyToCheck, jsonRes.Key)
 	}
 
-	time.Sleep(11 * time.Second) // buffer a bit of the 10s timeout
+	time.Sleep(2 * time.Second)
+
 	req.Reset()
 	res.Reset()
 	req.SetRequestURI(httpaddr + "/retrieve")
 	client.Do(req, res)
+	log.Println("before checking")
 	if res.StatusCode() != 200 {
 		t.Fatalf("Expected Status 200 OK, got %d", res.StatusCode())
 	}
@@ -278,7 +293,7 @@ func TestRejectNotFound(t *testing.T) {
 }
 
 var (
-	as2, _    = NewAntriServer(1)
+	as2, _    = NewAntriServer(1, 1)
 	addr2     = "127.0.0.1:3001"
 	httpaddr2 = "http://127.0.0.1:3001"
 )
