@@ -143,12 +143,6 @@ func (as *AntriServer) AddTask(ctx *fasthttp.RequestCtx) {
 	ctx.WriteString(taskKeyStr)
 }
 
-func (as *AntriServer) removeFromTimeoutQ(key string) {
-	as.inflightMutex.Lock()
-	as.inflightRecords.Delete(key)
-	as.inflightMutex.Unlock()
-}
-
 func (as *AntriServer) taskTimeoutWatchdog() {
 	// cause we always append to back
 	// we can be sure that this array is sorted on expireOn
@@ -156,7 +150,7 @@ func (as *AntriServer) taskTimeoutWatchdog() {
 	for {
 		select {
 		case <-ticker.C:
-			var res *ds.PqItem
+			itemArr := make([]*ds.PqItem, 0)
 
 			// remove from inflight
 			currentTime := time.Now().Unix()
@@ -166,20 +160,23 @@ func (as *AntriServer) taskTimeoutWatchdog() {
 
 				// no need to check the err
 				// undoubtedly gonna get one
-				res, _ = as.inflightRecords.Pop()
+				item, _ := as.inflightRecords.Pop()
+				itemArr = append(itemArr, item)
 			}
 			as.inflightMutex.Unlock()
 
-			if res != nil {
-				// add back to waiting
-				as.mutex.Lock()
+			as.mutex.Lock()
+			for _, item := range itemArr {
 				for as.pq.HeapSize() == as.maxsize {
 					as.notFull.Wait()
 				}
-				as.pq.Insert(res)
+				as.pq.Insert(item)
+
+				// have to be put inside
+				// so workers can know that items may be taken
 				as.notEmpty.Signal()
-				as.mutex.Unlock()
 			}
+			as.mutex.Unlock()
 		}
 	}
 }

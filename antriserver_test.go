@@ -161,6 +161,16 @@ func TestAddRetrieveRejectThenReretrieve(t *testing.T) {
 	if jsonRes.Key != keyToCheck {
 		t.Fatalf("Expected key %s, but got %s", keyToCheck, jsonRes.Key)
 	}
+
+	req.Reset()
+	res.Reset()
+	req.SetRequestURI(fmt.Sprintf("%s/%s/commit", httpaddr, keyToCheck))
+	req.Header.SetMethod("POST")
+	client.Do(req, res)
+
+	if res.StatusCode() != 200 {
+		t.Fatalf("Expected Status 200 OK, got %d", res.StatusCode())
+	}
 }
 
 func TestAddRetrieveTimeoutThenReretrieve(t *testing.T) {
@@ -215,7 +225,6 @@ func TestAddRetrieveTimeoutThenReretrieve(t *testing.T) {
 	res.Reset()
 	req.SetRequestURI(httpaddr + "/retrieve")
 	client.Do(req, res)
-	log.Println("before checking")
 	if res.StatusCode() != 200 {
 		t.Fatalf("Expected Status 200 OK, got %d", res.StatusCode())
 	}
@@ -226,6 +235,16 @@ func TestAddRetrieveTimeoutThenReretrieve(t *testing.T) {
 	}
 	if jsonRes.Key != keyToCheck {
 		t.Fatalf("Expected key %s, but got %s", keyToCheck, jsonRes.Key)
+	}
+
+	req.Reset()
+	res.Reset()
+	req.SetRequestURI(fmt.Sprintf("%s/%s/commit", httpaddr, keyToCheck))
+	req.Header.SetMethod("POST")
+	client.Do(req, res)
+
+	if res.StatusCode() != 200 {
+		t.Fatalf("Expected Status 200 OK, got %d", res.StatusCode())
 	}
 }
 
@@ -263,7 +282,7 @@ func TestCommitNotFound(t *testing.T) {
 	req := fasthttp.AcquireRequest()
 	res := fasthttp.AcquireResponse()
 
-	req.SetRequestURI(httpaddr + "/commit/notfound")
+	req.SetRequestURI(httpaddr + "/notfound/commit")
 	req.Header.SetMethod("POST")
 	client.Do(req, res)
 	if res.StatusCode() != 404 {
@@ -284,7 +303,7 @@ func TestRejectNotFound(t *testing.T) {
 	req := fasthttp.AcquireRequest()
 	res := fasthttp.AcquireResponse()
 
-	req.SetRequestURI(httpaddr + "/reject/notfound")
+	req.SetRequestURI(httpaddr + "/notfound/reject")
 	req.Header.SetMethod("POST")
 	client.Do(req, res)
 	if res.StatusCode() != 404 {
@@ -334,6 +353,7 @@ func TestLockWaitFlow(t *testing.T) {
 		wg.Done()
 	}()
 
+	time.Sleep(1 * time.Second)
 	req := fasthttp.AcquireRequest()
 	res := fasthttp.AcquireResponse()
 	defer fasthttp.ReleaseRequest(req)
