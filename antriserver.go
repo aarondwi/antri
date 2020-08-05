@@ -18,7 +18,7 @@ var newlineByte = byte('\n')
 var newlineByteSlice = []byte("\n")
 var letterBytes = []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
 
-type MutexedFile struct {
+type mutexedFile struct {
 	M *sync.Mutex
 	F *os.File
 }
@@ -30,6 +30,12 @@ func randStringBytes(n int) []byte {
 		b[i] = letterBytes[rand.Intn(l)]
 	}
 	return b
+}
+
+var pqItemPool = &sync.Pool{
+	New: func() interface{} {
+		return &ds.PqItem{}
+	},
 }
 
 type AntriServer struct {
@@ -47,8 +53,8 @@ type AntriServer struct {
 	taskTimeout     int
 
 	// durability option
-	added *MutexedFile
-	taken *MutexedFile
+	added *mutexedFile
+	taken *mutexedFile
 }
 
 func NewAntriServer(maxsize, taskTimeout int) (*AntriServer, error) {
@@ -56,7 +62,7 @@ func NewAntriServer(maxsize, taskTimeout int) (*AntriServer, error) {
 		return nil, fmt.Errorf("maxsize should be positive, received %d", maxsize)
 	}
 	if taskTimeout <= 0 {
-		return nil, fmt.Errorf("taskTimeout should be positive, received %d", maxsize)
+		return nil, fmt.Errorf("taskTimeout should be positive, received %d", taskTimeout)
 	}
 
 	// addTask + retrieveTask path
@@ -85,14 +91,14 @@ func NewAntriServer(maxsize, taskTimeout int) (*AntriServer, error) {
 		mutex:           &mutex,
 		notEmpty:        notEmpty,
 		notFull:         notFull,
-		pq:              ds.NewPq(maxsize),
+		pq:              ds.NewPq(),
 		maxsize:         maxsize,
 		inflightMutex:   &inflightMutex,
 		inflightRecords: inflightRecords,
-		added: &MutexedFile{
+		added: &mutexedFile{
 			M: &addedMutex,
 			F: addedFile},
-		taken: &MutexedFile{
+		taken: &mutexedFile{
 			M: &takenMutex,
 			F: takenFile},
 	}
@@ -113,11 +119,17 @@ func (as *AntriServer) AddTask(ctx *fasthttp.RequestCtx) {
 
 	taskKeyStr := string(randStringBytes(16))
 
-	item := &ds.PqItem{
-		Key:         taskKeyStr,
-		Value:       string(ctx.FormValue("value")),
-		ScheduledAt: time.Now().Unix() + int64(ctx.PostArgs().GetUintOrZero("secondsfromnow")),
-		Retries:     0}
+	item := pqItemPool.Get().(*ds.PqItem)
+	item.Key = taskKeyStr
+	item.Value = string(ctx.FormValue("value"))
+	item.ScheduledAt = time.Now().Unix() + int64(ctx.PostArgs().GetUintOrZero("secondsfromnow"))
+	item.Retries = 0
+
+	// &ds.PqItem{
+	// 	Key:         taskKeyStr,
+	// 	Value:       string(ctx.FormValue("value")),
+	// 	ScheduledAt: time.Now().Unix() + int64(ctx.PostArgs().GetUintOrZero("secondsfromnow")),
+	// 	Retries:     0}
 
 	// separate commit point
 	// dont wanna block read because of fsync
@@ -137,8 +149,8 @@ func (as *AntriServer) AddTask(ctx *fasthttp.RequestCtx) {
 		as.notFull.Wait()
 	}
 	as.pq.Insert(item)
-	as.notEmpty.Signal()
 	as.mutex.Unlock()
+	as.notEmpty.Signal()
 
 	ctx.WriteString(taskKeyStr)
 }
@@ -204,13 +216,13 @@ func (as *AntriServer) RetrieveTask(ctx *fasthttp.RequestCtx) {
 			as.mutex.Unlock()
 			// can't sleep for timediff
 			// cause some later message may be scheduled for earlier time
-			time.Sleep(10 * time.Millisecond)
+			time.Sleep(100 * time.Millisecond)
 			as.mutex.Lock()
 			continue
 		}
 		res = as.pq.Pop()
-		as.notFull.Signal()
 		as.mutex.Unlock()
+		as.notFull.Signal()
 		break
 	}
 
@@ -232,7 +244,7 @@ func (as *AntriServer) RetrieveTask(ctx *fasthttp.RequestCtx) {
 func (as *AntriServer) CommitTask(ctx *fasthttp.RequestCtx) {
 	taskKey := ctx.UserValue("taskKey").(string)
 	as.inflightMutex.Lock()
-	_, ok := as.inflightRecords.Get(taskKey)
+	item, ok := as.inflightRecords.Get(taskKey)
 	if ok {
 		as.inflightRecords.Delete(taskKey)
 	}
@@ -244,6 +256,8 @@ func (as *AntriServer) CommitTask(ctx *fasthttp.RequestCtx) {
 		fmt.Fprint(ctx, "Task Key not found")
 		return
 	}
+
+	pqItemPool.Put(item)
 
 	// meaning found, commit to wal
 	as.taken.M.Lock()
@@ -283,8 +297,8 @@ func (as *AntriServer) RejectTask(ctx *fasthttp.RequestCtx) {
 		as.notFull.Wait()
 	}
 	as.pq.Insert(val)
-	as.notEmpty.Signal()
 	as.mutex.Unlock()
+	as.notEmpty.Signal()
 
 	ctx.WriteString("OK")
 }

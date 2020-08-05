@@ -30,8 +30,9 @@ type OrderedMap struct {
 // NewOrderedMap returns a default orderedMap API
 func NewOrderedMap(secondsToExpire int64) *OrderedMap {
 	return &OrderedMap{
-		kv:              make(map[string]*PqItem),
-		arr:             make([]orderedMapItem, 0),
+		kv: make(map[string]*PqItem),
+		// buffer allocation a bit
+		arr:             make([]orderedMapItem, 0, 1000),
 		secondsToExpire: secondsToExpire,
 	}
 }
@@ -40,11 +41,12 @@ func NewOrderedMap(secondsToExpire int64) *OrderedMap {
 // also tracks with its expire time
 // each item will be expired `secondsToExpire` from insertion time
 func (op *OrderedMap) Insert(key string, item *PqItem) {
-	op.kv[key] = item
 	itemTracker := orderedMapItem{
 		Key:      key,
 		expireOn: time.Now().Unix() + op.secondsToExpire,
 	}
+
+	op.kv[key] = item
 	op.arr = append(op.arr, itemTracker)
 	op.len++
 }

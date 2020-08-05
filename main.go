@@ -7,11 +7,11 @@ import (
 )
 
 func main() {
-	as, _ := NewAntriServer(50_000, 10)
+	as, _ := NewAntriServer(1_000_000, 10)
 
 	server := fasthttp.Server{
 		Handler:     NewAntriServerRouter(as).Handler,
-		Concurrency: 50,
+		Concurrency: 128,
 	}
 	log.Fatal(server.ListenAndServe("127.0.0.1:8080"))
 }

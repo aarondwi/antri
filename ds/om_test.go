@@ -1,7 +1,9 @@
 package ds
 
 import (
+	"fmt"
 	"log"
+	"sync"
 	"testing"
 	"time"
 )
@@ -46,5 +48,23 @@ func TestOrderedMap(t *testing.T) {
 	l := om.Length()
 	if l != 0 {
 		log.Fatalf("now, the orderedmap should be empty, but it is still has %d items", l)
+	}
+}
+
+func BenchmarkOrderedMap(b *testing.B) {
+	om := NewOrderedMap(10)
+	pool := sync.Pool{
+		New: func() interface{} { return new(PqItem) },
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		item := pool.Get().(*PqItem)
+		b.StopTimer()
+		str := fmt.Sprintf("key_%d", i+1)
+		b.StartTimer()
+		item.Key = str
+		om.Insert(str, item)
+		om.Delete(str)
+		pool.Put(item)
 	}
 }

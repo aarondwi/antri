@@ -18,15 +18,13 @@ type PqItem struct {
 type Pq struct {
 	heapArray []*PqItem
 	size      int
-	maxsize   int
 }
 
 // NewPq setups our priorityqueue with the config
-func NewPq(maxsize int) *Pq {
+func NewPq() *Pq {
 	maxheap := &Pq{
 		heapArray: []*PqItem{},
 		size:      0,
-		maxsize:   maxsize,
 	}
 	return maxheap
 }

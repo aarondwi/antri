@@ -1,12 +1,14 @@
 package ds
 
 import (
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 )
 
 func TestPq(t *testing.T) {
-	pq := NewPq(10)
+	pq := NewPq()
 
 	absoluteFirstItem := &PqItem{
 		ScheduledAt: time.Now().Unix(),
@@ -81,5 +83,24 @@ func TestPq(t *testing.T) {
 	temporary = pq.Pop().Value
 	if temporary != "fifth" {
 		t.Fatalf("Expected %s, got %s", "fifth", temporary)
+	}
+}
+
+func BenchmarkPq(b *testing.B) {
+	pq := NewPq()
+	pool := sync.Pool{
+		New: func() interface{} { return new(PqItem) },
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		item := pool.Get().(*PqItem)
+		b.StopTimer()
+		str := fmt.Sprintf("key_%d", i+1)
+		b.StartTimer()
+		item.Key = str
+		item.ScheduledAt = time.Now().Unix()
+		pq.Insert(item)
+		pq.Pop()
+		pool.Put(item)
 	}
 }

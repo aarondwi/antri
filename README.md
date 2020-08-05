@@ -1,5 +1,5 @@
 # antri
-toy implementation of asynchronous task queue, primarily intended for learning
+toy implementation of in-memory, asynchronous task queue. Primarily intended for learning
 
 Trivia
 ------------------------------------------------------
@@ -23,7 +23,7 @@ Then, you can start putting your task to the queue(with curl for example, cause 
 curl -XPOST http://127.0.0.1:8080/add -d 'value=helloworld&secondsfromnow=0'
 ```
 
-This will return the key of the created task (e.g. `AZ46xL8dbmiYrFT4`). The key is a 16-byte alphanumeric. This task is also sync to disk to ensure durability (currently with O_SYNC flag). Note the `secondsfromnow` part, it is to set at what time should the task starts to be visible (for retrieval by workers)
+This will return the key of the created task (for example, `LJKftTj3N0gOGaJO`). The key is a 16-byte alphanumeric. This task is also sync to disk to ensure durability (currently with O_SYNC flag). Note the `secondsfromnow` part, it is to set at what time should the task starts to be visible (for retrieval by workers)
 
 From your workers, you can retrieve the task with
 
@@ -37,7 +37,7 @@ This will return the json of the task, looks like below
 {
     "scheduledAt":1596445069,
     "key":"LJKftTj3N0gOGaJO",
-    "value":"hello",
+    "value":"helloworld",
     "retries":0
 }
 ```
@@ -62,9 +62,11 @@ Depending on the status of the task (it may timeout before you commit it) you ca
 
 ```shell
 # if success
+# HTTP status code 200
 OK
 
 # if failed, probably cause of timeout or non-existent key
+# HTTP status code 404
 Task Key not found
 ```
 
@@ -81,7 +83,6 @@ Features
 To Do:
 ------------------------------------------------------
 
-0. docs how to use
 1. snapshot, for recovery -> following redis model
 
     * also need to use segmented log, so can skip checking faster
@@ -109,7 +110,7 @@ Notes
 3. shared buffers? **no need** (for now)
 
     * the size should be small enough to fit even in memory of a relatively small machine, and recovery is based on log
-    * currently hardcoded at 50K, for simplicity. Meaning, at most you may have 50K outstanding tasks
+    * currently hardcoded to cap at 1 million, for simplicity. Meaning, at most you may have 1 million outstanding tasks (also should be really big for most case)
 
 4. topic? **NO**
 
@@ -128,14 +129,17 @@ Possible optimization/reliability
 
 1. batch file write using fsync (based on time and/or number)
 
-    * currently using os.O_SYNC flag (so synced on every write), but on windows, the official golang compiler does not map O_SYNC to windows equivalent, so it is currently unsafe on windows.
+    * currently using os.O_SYNC flag (so synced on every write), but on windows (as of august 2020), the official golang compiler does not map O_SYNC to windows equivalent, so it is currently unsafe on windows.
 
 2. find way to reduce lock contention when putting/taking from queue? what has come to mind:
 
     * change pq and sl to use ConcurrentSkipList + unroll the skiplist
     * try simple array as internal DS, but lost the schedule feature
 
-3. sync.Pool to reduce allocation
-4. Increase reliability of internal storage
+3. Increase reliability of internal storage
 
     * use proper embedded database, e.g. rocksdb/badgerdb/innodb/others
+
+4. allow all API to use batching
+
+    * reduce network round trip
