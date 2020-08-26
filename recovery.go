@@ -12,11 +12,11 @@ import (
 // WritePqItemToLog format PqItem into binary data to write into storage.
 // we separate it from Insert so we can use it on concurrently with main lock.
 //
-// our log format => 20 bytes metadata + key length + value length
+// our log format => 16 bytes metadata + key length + value length
 //
 // scheduledAt int64 -> 8 bytes
 //
-// length of key int32 -> 4 bytes
+// length of key int16 -> 2 bytes
 //
 // length of value int32 -> 4 bytes
 //
@@ -26,12 +26,12 @@ import (
 //
 // value string/[]byte
 func WritePqItemToLog(w io.Writer, pi *ds.PqItem) bool {
-	buf := make([]byte, 18)
+	buf := make([]byte, 16)
 
 	binary.LittleEndian.PutUint64(buf, uint64(pi.ScheduledAt))
-	binary.LittleEndian.PutUint32(buf[8:], uint32(len(pi.Key)))
-	binary.LittleEndian.PutUint32(buf[12:], uint32(len(pi.Value)))
-	binary.LittleEndian.PutUint16(buf[16:], uint16(pi.Retries))
+	binary.LittleEndian.PutUint16(buf[8:], uint16(len(pi.Key)))
+	binary.LittleEndian.PutUint32(buf[10:], uint32(len(pi.Value)))
+	binary.LittleEndian.PutUint16(buf[14:], uint16(pi.Retries))
 	buf = append(buf, pi.Key...)
 	buf = append(buf, pi.Value...)
 
@@ -57,12 +57,12 @@ func ReadPqItemFromLog(r io.Reader) *ds.PqItem {
 	}
 	scheduledAtRead := binary.LittleEndian.Uint64(int64holder)
 
-	n, err = r.Read(int32holder)
+	n, err = r.Read(int16holder)
 	if n == 0 || err != nil {
 		log.Printf("failed parsing lengthOfKey: %d", n)
 		return nil
 	}
-	lengthOfKeyRead := binary.LittleEndian.Uint32(int32holder)
+	lengthOfKeyRead := binary.LittleEndian.Uint16(int16holder)
 
 	n, err = r.Read(int32holder)
 	if n == 0 || err != nil {
@@ -132,4 +132,17 @@ func ReadCommittedKeyFromLog(r io.Reader) (string, bool) {
 	}
 
 	return string(keyBytes), true
+}
+
+// WriteSnapshot ...
+//
+func WriteSnapshot(w io.Writer, added int64, taken int64) {
+
+}
+
+// ReadSnapshot ...
+//
+func ReadSnapshot(r io.Reader) (int64, int64, bool) {
+
+	return 0, 0, true
 }
