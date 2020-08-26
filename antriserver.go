@@ -18,6 +18,11 @@ var newlineByte = byte('\n')
 var newlineByteSlice = []byte("\n")
 var letterBytes = []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
 
+var fileFlag = os.O_APPEND | os.O_CREATE | os.O_WRONLY | os.O_SYNC
+var fileMode = os.FileMode(0644)
+var addedFileFormat = "added-%031d.log"
+var takenFileFormat = "taken-%031d.log"
+
 type mutexedFile struct {
 	M *sync.Mutex
 	F *os.File
@@ -73,6 +78,8 @@ type AntriServer struct {
 // 1. maxsize to prevent OOM error (you can count the number of bytes needed for your data)
 //
 // 2. taskTimeout is how long before a retrieved task by a worker considered failed, and should be resent
+//
+// 3. checkpointDuration is how often antri does its asynchronous snapshotting
 func NewAntriServer(maxsize, taskTimeout, checkpointDuration int) (*AntriServer, error) {
 	if maxsize <= 0 {
 		return nil, fmt.Errorf("maxsize should be positive, received %d", maxsize)
@@ -84,15 +91,14 @@ func NewAntriServer(maxsize, taskTimeout, checkpointDuration int) (*AntriServer,
 		return nil, fmt.Errorf("checkpointDuration should be positive, received %d", checkpointDuration)
 	}
 
-	fileFlag := os.O_APPEND | os.O_CREATE | os.O_WRONLY | os.O_SYNC
-	fileMode := os.FileMode(0644)
 	// addTask + retrieveTask path
 	mutex := sync.Mutex{}
 	notEmpty := sync.NewCond(&mutex)
 	notFull := sync.NewCond(&mutex)
 
 	addedMutex := sync.Mutex{}
-	addedFile, err := os.OpenFile(fmt.Sprintf("%031d-added.log", 1), fileFlag, fileMode)
+	addedFile, err := os.OpenFile(
+		fmt.Sprintf(addedFileFormat, 1), fileFlag, fileMode)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -103,7 +109,8 @@ func NewAntriServer(maxsize, taskTimeout, checkpointDuration int) (*AntriServer,
 
 	// commitTask path
 	takenMutex := sync.Mutex{}
-	takenFile, err := os.OpenFile(fmt.Sprintf("%031d-taken.log", 1), fileFlag, fileMode)
+	takenFile, err := os.OpenFile(
+		fmt.Sprintf(takenFileFormat, 1), fileFlag, fileMode)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -125,12 +132,12 @@ func NewAntriServer(maxsize, taskTimeout, checkpointDuration int) (*AntriServer,
 			M: &addedMutex,
 			F: addedFile,
 			C: 1,
-			N: 1},
+			N: 0},
 		taken: &mutexedFile{
 			M: &takenMutex,
 			F: takenFile,
 			C: 1,
-			N: 1},
+			N: 0},
 		checkpointDuration: checkpointDuration,
 		checkpointFile:     checkpointFile,
 	}
@@ -147,6 +154,20 @@ func (as *AntriServer) writeNewMessageToWal(item *ds.PqItem) {
 	ok := WritePqItemToLog(as.added.F, item)
 	if !ok {
 		panic("failed writing to log!")
+	}
+	as.added.N++
+	if as.added.N%1000 == 0 {
+		err := as.added.F.Close()
+		if err != nil {
+			log.Fatalf("Fail closing log file with error -> %v", err)
+		}
+
+		as.added.C++
+		as.added.F, err = os.OpenFile(fmt.Sprintf(addedFileFormat, as.added.C), fileFlag, fileMode)
+		if err != nil {
+			log.Fatalf("Opening new log file failed with error -> %v", err)
+		}
+		as.added.N = 1
 	}
 	as.added.M.Unlock()
 }
@@ -183,66 +204,6 @@ func (as *AntriServer) AddTask(ctx *fasthttp.RequestCtx) {
 	as.addNewMessageToInMemoryDS(item)
 
 	ctx.WriteString(taskKeyStr)
-}
-
-func (as *AntriServer) snapshotter() {
-	// based on
-	// https://gist.github.com/wrfly/1a3239cd2f78ee68157ebc9b987f565b
-	// pwd, err := os.Getwd()
-	// if err != nil {
-	// 	log.Fatalf("getwd err: %s", err)
-	// }
-	// procAttr := syscall.ProcAttr{
-	// 	Dir:   pwd,
-	// 	Env:   []string{},
-	// 	Files: []uintptr{as.checkpointFile.Fd()},
-	// 	Sys:   nil,
-	// }
-	ticker := time.NewTicker(time.Duration(as.checkpointDuration) * time.Second)
-	for {
-		select {
-		case <-ticker.C:
-		default:
-		}
-	}
-}
-
-func (as *AntriServer) taskTimeoutWatchdog() {
-	// cause we always append to back
-	// we can be sure that this array is sorted on expireOn
-	ticker := time.NewTicker(10 * time.Millisecond)
-	for {
-		select {
-		case <-ticker.C:
-			itemArr := make([]*ds.PqItem, 0)
-
-			// remove from inflight
-			currentTime := time.Now().Unix()
-			as.inflightMutex.Lock()
-			for as.inflightRecords.Length() > 0 &&
-				as.inflightRecords.PeekExpire() < currentTime {
-
-				// no need to check the err
-				// undoubtedly gonna get one
-				item, _ := as.inflightRecords.Pop()
-				itemArr = append(itemArr, item)
-			}
-			as.inflightMutex.Unlock()
-
-			as.mutex.Lock()
-			for _, item := range itemArr {
-				for as.pq.HeapSize() == as.maxsize {
-					as.notFull.Wait()
-				}
-				as.pq.Insert(item)
-
-				// have to be put inside
-				// so workers can know that items may be taken
-				as.notEmpty.Signal()
-			}
-			as.mutex.Unlock()
-		}
-	}
 }
 
 // only hold in-memory
@@ -300,6 +261,20 @@ func (as *AntriServer) writeCommitKeyToWal(key []byte) {
 	if !ok {
 		panic("failed to commit key!")
 	}
+	as.taken.N++
+	if as.taken.N%1000 == 0 {
+		err := as.taken.F.Close()
+		if err != nil {
+			log.Fatalf("Fail closing log file with error -> %v", err)
+		}
+
+		as.taken.C++
+		as.taken.F, err = os.OpenFile(fmt.Sprintf(takenFileFormat, as.taken.C), fileFlag, fileMode)
+		if err != nil {
+			log.Fatalf("Opening new log file failed with error -> %v", err)
+		}
+		as.taken.N = 1
+	}
 	as.taken.M.Unlock()
 }
 
@@ -356,6 +331,69 @@ func (as *AntriServer) RejectTask(ctx *fasthttp.RequestCtx) {
 	as.addNewMessageToInMemoryDS(item)
 
 	ctx.WriteString("OK")
+}
+
+// 2 internal asynchronous functions
+// and both are run on other goroutines
+func (as *AntriServer) snapshotter() {
+	// based on
+	// https://gist.github.com/wrfly/1a3239cd2f78ee68157ebc9b987f565b
+	// pwd, err := os.Getwd()
+	// if err != nil {
+	// 	log.Fatalf("getwd err: %s", err)
+	// }
+	// procAttr := syscall.ProcAttr{
+	// 	Dir:   pwd,
+	// 	Env:   []string{},
+	// 	Files: []uintptr{as.checkpointFile.Fd()},
+	// 	Sys:   nil,
+	// }
+	ticker := time.NewTicker(time.Duration(as.checkpointDuration) * time.Second)
+	for {
+		select {
+		case <-ticker.C:
+		default:
+		}
+	}
+}
+func (as *AntriServer) taskTimeoutWatchdog() {
+	// cause we always append to back
+	// we can be sure that this array is sorted on expireOn
+	//
+	// does this function also need to track the retries to file?
+	ticker := time.NewTicker(10 * time.Millisecond)
+	for {
+		select {
+		case <-ticker.C:
+			itemArr := make([]*ds.PqItem, 0)
+
+			// remove from inflight
+			currentTime := time.Now().Unix()
+			as.inflightMutex.Lock()
+			for as.inflightRecords.Length() > 0 &&
+				as.inflightRecords.PeekExpire() < currentTime {
+
+				// no need to check the err
+				// undoubtedly gonna get one
+				item, _ := as.inflightRecords.Pop()
+				itemArr = append(itemArr, item)
+			}
+			as.inflightMutex.Unlock()
+
+			as.mutex.Lock()
+			for _, item := range itemArr {
+				for as.pq.HeapSize() == as.maxsize {
+					as.notFull.Wait()
+				}
+				as.pq.Insert(item)
+
+				// have to be put inside
+				// so workers can know that items may be taken
+				as.notEmpty.Signal()
+			}
+			as.mutex.Unlock()
+		}
+	}
 }
 
 // NewAntriServerRouter returns fasthttp/router that already set with AntriServer handler

@@ -83,10 +83,7 @@ Features
 To Do:
 ------------------------------------------------------
 
-1. snapshot, for recovery -> following redis model
-
-    * also need to use segmented log, so can skip checking faster
-
+1. snapshot, for recovery -> following redis/LSM-tree model (rolling log already implemented)
 2. optional cluster (raft / lock-service based)
 3. optional dead letter queue
 
