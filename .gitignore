@@ -16,6 +16,7 @@
 
 # internal file
 *.log
+snapshot
 
 # for playing around with ab/others
 postfile 

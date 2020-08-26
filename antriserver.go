@@ -21,6 +21,8 @@ var letterBytes = []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ01
 type mutexedFile struct {
 	M *sync.Mutex
 	F *os.File
+	C int
+	N int
 }
 
 func randStringBytes(n int) []byte {
@@ -59,6 +61,10 @@ type AntriServer struct {
 	// durability option
 	added *mutexedFile
 	taken *mutexedFile
+
+	// asynchronous snapshot
+	checkpointFile     *os.File
+	checkpointDuration int
 }
 
 // NewAntriServer initiate the AntriServer with all needed params.
@@ -67,21 +73,26 @@ type AntriServer struct {
 // 1. maxsize to prevent OOM error (you can count the number of bytes needed for your data)
 //
 // 2. taskTimeout is how long before a retrieved task by a worker considered failed, and should be resent
-func NewAntriServer(maxsize, taskTimeout int) (*AntriServer, error) {
+func NewAntriServer(maxsize, taskTimeout, checkpointDuration int) (*AntriServer, error) {
 	if maxsize <= 0 {
 		return nil, fmt.Errorf("maxsize should be positive, received %d", maxsize)
 	}
 	if taskTimeout <= 0 {
 		return nil, fmt.Errorf("taskTimeout should be positive, received %d", taskTimeout)
 	}
+	if checkpointDuration <= 0 {
+		return nil, fmt.Errorf("checkpointDuration should be positive, received %d", checkpointDuration)
+	}
 
+	fileFlag := os.O_APPEND | os.O_CREATE | os.O_WRONLY | os.O_SYNC
+	fileMode := os.FileMode(0644)
 	// addTask + retrieveTask path
 	mutex := sync.Mutex{}
 	notEmpty := sync.NewCond(&mutex)
 	notFull := sync.NewCond(&mutex)
 
 	addedMutex := sync.Mutex{}
-	addedFile, err := os.OpenFile("added.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY|os.O_SYNC, 0644)
+	addedFile, err := os.OpenFile(fmt.Sprintf("%031d-added.log", 1), fileFlag, fileMode)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -92,7 +103,12 @@ func NewAntriServer(maxsize, taskTimeout int) (*AntriServer, error) {
 
 	// commitTask path
 	takenMutex := sync.Mutex{}
-	takenFile, err := os.OpenFile("taken.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY|os.O_SYNC, 0644)
+	takenFile, err := os.OpenFile(fmt.Sprintf("%031d-taken.log", 1), fileFlag, fileMode)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	checkpointFile, err := os.OpenFile("snapshot", fileFlag, fileMode)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -107,13 +123,41 @@ func NewAntriServer(maxsize, taskTimeout int) (*AntriServer, error) {
 		inflightRecords: inflightRecords,
 		added: &mutexedFile{
 			M: &addedMutex,
-			F: addedFile},
+			F: addedFile,
+			C: 1,
+			N: 1},
 		taken: &mutexedFile{
 			M: &takenMutex,
-			F: takenFile},
+			F: takenFile,
+			C: 1,
+			N: 1},
+		checkpointDuration: checkpointDuration,
+		checkpointFile:     checkpointFile,
 	}
 	go as.taskTimeoutWatchdog()
+	// go as.snapshotter()
 	return as, nil
+}
+
+// separate commit point from adding to in-memory data structure
+// dont wanna block read because of fsync
+// after this function returns, the message is considered committed
+func (as *AntriServer) writeNewMessageToWal(item *ds.PqItem) {
+	as.added.M.Lock()
+	ok := WritePqItemToLog(as.added.F, item)
+	if !ok {
+		panic("failed writing to log!")
+	}
+	as.added.M.Unlock()
+}
+func (as *AntriServer) addNewMessageToInMemoryDS(item *ds.PqItem) {
+	as.mutex.Lock()
+	for as.pq.HeapSize() == as.maxsize {
+		as.notFull.Wait()
+	}
+	as.pq.Insert(item)
+	as.mutex.Unlock()
+	as.notEmpty.Signal()
 }
 
 // AddTask save the task message to wal
@@ -135,34 +179,32 @@ func (as *AntriServer) AddTask(ctx *fasthttp.RequestCtx) {
 	item.ScheduledAt = time.Now().Unix() + int64(ctx.PostArgs().GetUintOrZero("secondsfromnow"))
 	item.Retries = 0
 
-	// &ds.PqItem{
-	// 	Key:         taskKeyStr,
-	// 	Value:       string(ctx.FormValue("value")),
-	// 	ScheduledAt: time.Now().Unix() + int64(ctx.PostArgs().GetUintOrZero("secondsfromnow")),
-	// 	Retries:     0}
-
-	// separate commit point
-	// dont wanna block read because of fsync
-	// after this point, it is considered committed
-	// for now, we use text files for wal
-	as.added.M.Lock()
-	ok := WritePqItemToLog(as.added.F, item)
-	if !ok {
-		panic("failed writing to log!")
-	}
-	as.added.M.Unlock()
-
-	// lock/unlock manually
-	// we dont want unlock to wait for fmt
-	as.mutex.Lock()
-	for as.pq.HeapSize() == as.maxsize {
-		as.notFull.Wait()
-	}
-	as.pq.Insert(item)
-	as.mutex.Unlock()
-	as.notEmpty.Signal()
+	as.writeNewMessageToWal(item)
+	as.addNewMessageToInMemoryDS(item)
 
 	ctx.WriteString(taskKeyStr)
+}
+
+func (as *AntriServer) snapshotter() {
+	// based on
+	// https://gist.github.com/wrfly/1a3239cd2f78ee68157ebc9b987f565b
+	// pwd, err := os.Getwd()
+	// if err != nil {
+	// 	log.Fatalf("getwd err: %s", err)
+	// }
+	// procAttr := syscall.ProcAttr{
+	// 	Dir:   pwd,
+	// 	Env:   []string{},
+	// 	Files: []uintptr{as.checkpointFile.Fd()},
+	// 	Sys:   nil,
+	// }
+	ticker := time.NewTicker(time.Duration(as.checkpointDuration) * time.Second)
+	for {
+		select {
+		case <-ticker.C:
+		default:
+		}
+	}
 }
 
 func (as *AntriServer) taskTimeoutWatchdog() {
@@ -203,6 +245,14 @@ func (as *AntriServer) taskTimeoutWatchdog() {
 	}
 }
 
+// only hold in-memory
+// the at-least-once guarantee is via log
+func (as *AntriServer) addToInflightStorer(key string, item *ds.PqItem) {
+	as.inflightMutex.Lock()
+	as.inflightRecords.Insert(key, item)
+	as.inflightMutex.Unlock()
+}
+
 // RetrieveTask takes a task from in-memory ds
 // and move it to in-memory map
 // Available via GET method, at /retrieve
@@ -236,16 +286,21 @@ func (as *AntriServer) RetrieveTask(ctx *fasthttp.RequestCtx) {
 		break
 	}
 
-	// only hold in-memory
-	// the at-least-once guarantee is via log
-	as.inflightMutex.Lock()
-	as.inflightRecords.Insert(res.Key, res)
-	as.inflightMutex.Unlock()
+	as.addToInflightStorer(res.Key, res)
 
 	// this should NOT error
 	// because we totally manage this ourselves
 	byteArray, _ := json.Marshal(res)
 	ctx.Write(byteArray)
+}
+
+func (as *AntriServer) writeCommitKeyToWal(key []byte) {
+	as.taken.M.Lock()
+	ok := WriteCommittedKeyToLog(as.taken.F, key)
+	if !ok {
+		panic("failed to commit key!")
+	}
+	as.taken.M.Unlock()
 }
 
 // CommitTask checks if the given key is currently inflight
@@ -267,15 +322,11 @@ func (as *AntriServer) CommitTask(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
+	// meaning found
+	// put first, so can be reused directly
 	pqItemPool.Put(item)
 
-	// meaning found, commit to wal
-	as.taken.M.Lock()
-	ok = WriteCommittedKeyToLog(as.taken.F, ctx.FormValue("key"))
-	if !ok {
-		panic("failed to commit key!")
-	}
-	as.taken.M.Unlock()
+	as.writeCommitKeyToWal([]byte(taskKey))
 
 	ctx.WriteString("OK")
 }
@@ -286,7 +337,7 @@ func (as *AntriServer) CommitTask(ctx *fasthttp.RequestCtx) {
 func (as *AntriServer) RejectTask(ctx *fasthttp.RequestCtx) {
 	taskKey := ctx.UserValue("taskKey").(string)
 	as.inflightMutex.Lock()
-	val, ok := as.inflightRecords.Get(taskKey)
+	item, ok := as.inflightRecords.Get(taskKey)
 	if ok {
 		as.inflightRecords.Delete(taskKey)
 	}
@@ -300,15 +351,9 @@ func (as *AntriServer) RejectTask(ctx *fasthttp.RequestCtx) {
 	}
 
 	// for now, add 10s for retries delay
-	val.Retries++
-	val.ScheduledAt = time.Now().Unix() + 5
-	as.mutex.Lock()
-	for as.pq.HeapSize() == as.maxsize {
-		as.notFull.Wait()
-	}
-	as.pq.Insert(val)
-	as.mutex.Unlock()
-	as.notEmpty.Signal()
+	item.Retries++
+	item.ScheduledAt = time.Now().Unix() + 5
+	as.addNewMessageToInMemoryDS(item)
 
 	ctx.WriteString("OK")
 }

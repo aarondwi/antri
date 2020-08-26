@@ -17,18 +17,23 @@ var (
 	client   = &fasthttp.Client{}
 	addr     = "127.0.0.1:3000"
 	httpaddr = "http://127.0.0.1:3000"
-	as, _    = NewAntriServer(10, 1)
+	as, _    = NewAntriServer(10, 1, 1)
 )
 
 func TestAntriServerParameter(t *testing.T) {
-	_, err := NewAntriServer(0, 1)
+	_, err := NewAntriServer(0, 1, 1)
 	if err == nil {
 		log.Fatalf("maxsize should be positive, but it is not returning an error")
 	}
 
-	_, err = NewAntriServer(1, -1)
+	_, err = NewAntriServer(1, -1, 1)
 	if err == nil {
-		log.Fatalf("taskTImeout negative value should be error, but it is not")
+		log.Fatalf("taskTimeout negative value should be error, but it is not")
+	}
+
+	_, err = NewAntriServer(1, 1, -1)
+	if err == nil {
+		log.Fatalf("checkpointDuration negative value should be error, but it is not")
 	}
 }
 
@@ -312,7 +317,7 @@ func TestRejectNotFound(t *testing.T) {
 }
 
 var (
-	as2, _    = NewAntriServer(1, 1)
+	as2, _    = NewAntriServer(1, 1, 10)
 	addr2     = "127.0.0.1:3001"
 	httpaddr2 = "http://127.0.0.1:3001"
 )
