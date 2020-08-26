@@ -131,10 +131,11 @@ Possible optimization/reliability
 
     * currently using os.O_SYNC flag (so synced on every write), but on windows (as of august 2020), the official golang compiler does not map O_SYNC to windows equivalent, so it is currently unsafe on windows.
 
-2. find way to reduce lock contention when putting/taking from queue? what has come to mind:
+2. reduce lock contention. Wwhat has come to mind:
 
-    * change pq and sl to use ConcurrentSkipList + unroll the skiplist
-    * try simple array as internal DS, but lost the schedule feature
+    * change pq and sl to use lock-free data structure
+    * try simple array as internal DS,to reduce the number of swapping
+    * Use multiple internal queue (but comes problem to decide how to get from those)
 
 3. Increase reliability of internal storage
 

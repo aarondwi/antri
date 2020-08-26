@@ -38,6 +38,10 @@ var pqItemPool = &sync.Pool{
 	},
 }
 
+// AntriServer is our main class implementation
+//
+// it sets up the internal priority queue (for task), orderedmap (for tracking),
+// and logging system
 type AntriServer struct {
 	// internal queue
 	mutex    *sync.Mutex
@@ -57,6 +61,12 @@ type AntriServer struct {
 	taken *mutexedFile
 }
 
+// NewAntriServer initiate the AntriServer with all needed params.
+// So far:
+//
+// 1. maxsize to prevent OOM error (you can count the number of bytes needed for your data)
+//
+// 2. taskTimeout is how long before a retrieved task by a worker considered failed, and should be resent
 func NewAntriServer(maxsize, taskTimeout int) (*AntriServer, error) {
 	if maxsize <= 0 {
 		return nil, fmt.Errorf("maxsize should be positive, received %d", maxsize)

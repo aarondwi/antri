@@ -339,15 +339,18 @@ func TestLockWaitFlow(t *testing.T) {
 		req.SetRequestURI(httpaddr2 + "/retrieve")
 		client.Do(req, res)
 		if res.StatusCode() != 200 {
-			t.Fatalf("Expected Status 200 OK, got %d", res.StatusCode())
+			keyRetrieved = fmt.Sprintf("`Expected Status 200 OK, got %d`", res.StatusCode())
+			wg.Done()
+			return
 		}
 
 		time.Sleep(1 * time.Second) // give time for 2 writes to come and get blocked
 		var jsonRes ds.PqItem
 		err := json.Unmarshal(res.Body(), &jsonRes)
 		if err != nil {
-			t.Logf(string(res.Body()))
-			t.Fatalf("Should be a json of PqItem, but it is not")
+			keyRetrieved = fmt.Sprint("`Should be a json of PqItem, but it is not`")
+			wg.Done()
+			return
 		}
 		keyRetrieved = jsonRes.Key
 		wg.Done()
