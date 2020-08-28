@@ -84,8 +84,9 @@ To Do:
 ------------------------------------------------------
 
 1. snapshot, for recovery -> following redis/LSM-tree model (rolling log already implemented)
-2. optional cluster (raft / lock-service based)
-3. optional dead letter queue
+2. properly implement shutdown (over admin api too perhaps?)
+3. optional cluster (raft / lock-service based)
+4. optional dead letter queue
 
 Notes
 ------------------------------------------------------
@@ -121,7 +122,7 @@ Notes
 
     * I am also still thinking what stats should be provided :D, and probably gonna be using prometheus
 
-Possible optimization/reliability
+Possible optimization
 ------------------------------------------------------------------------
 
 1. batch file write using fsync (based on time and/or number)
@@ -131,13 +132,9 @@ Possible optimization/reliability
 2. reduce lock contention. Wwhat has come to mind:
 
     * change pq and sl to use lock-free data structure
-    * try simple array as internal DS,to reduce the number of swapping
-    * Use multiple internal queue (but comes problem to decide how to get from those)
+    * try simple array as internal DS + a b-tree/skiplist for index order, to reduce the number of swapping
+    * Use multiple internal queue (but because pull-model, comes problem to decide how to get from those)
 
-3. Increase reliability of internal storage
+3. use batching on internal api, e.g. on re-put dead task to wal and queue
 
-    * use proper embedded database, e.g. rocksdb/badgerdb/innodb/others
-
-4. allow all API to use batching
-
-    * reduce network round trip
+4. allow all API to use batching, to reduce network round trip

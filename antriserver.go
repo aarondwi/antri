@@ -14,21 +14,11 @@ import (
 	"github.com/valyala/fasthttp"
 )
 
-var newlineByte = byte('\n')
-var newlineByteSlice = []byte("\n")
 var letterBytes = []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
-
-var fileFlag = os.O_APPEND | os.O_CREATE | os.O_WRONLY | os.O_SYNC
+var fileFlag = os.O_APPEND | os.O_CREATE | os.O_RDWR | os.O_SYNC
 var fileMode = os.FileMode(0644)
 var addedFileFormat = "added-%031d.log"
 var takenFileFormat = "taken-%031d.log"
-
-type mutexedFile struct {
-	M *sync.Mutex
-	F *os.File
-	C int
-	N int
-}
 
 func randStringBytes(n int) []byte {
 	b := make([]byte, n)
@@ -64,8 +54,8 @@ type AntriServer struct {
 	taskTimeout     int
 
 	// durability option
-	added *mutexedFile
-	taken *mutexedFile
+	added *wal
+	taken *wal
 
 	// asynchronous snapshot
 	checkpointFile     *os.File
@@ -128,12 +118,12 @@ func NewAntriServer(maxsize, taskTimeout, checkpointDuration int) (*AntriServer,
 		maxsize:         maxsize,
 		inflightMutex:   &inflightMutex,
 		inflightRecords: inflightRecords,
-		added: &mutexedFile{
+		added: &wal{
 			M: &addedMutex,
 			F: addedFile,
 			C: 1,
 			N: 0},
-		taken: &mutexedFile{
+		taken: &wal{
 			M: &takenMutex,
 			F: takenFile,
 			C: 1,
@@ -146,15 +136,7 @@ func NewAntriServer(maxsize, taskTimeout, checkpointDuration int) (*AntriServer,
 	return as, nil
 }
 
-// separate commit point from adding to in-memory data structure
-// dont wanna block read because of fsync
-// after this function returns, the message is considered committed
-func (as *AntriServer) writeNewMessageToWal(item *ds.PqItem) {
-	as.added.M.Lock()
-	ok := WritePqItemToLog(as.added.F, item)
-	if !ok {
-		panic("failed writing to log!")
-	}
+func (as *AntriServer) rollNewMessageWal() {
 	as.added.N++
 	if as.added.N%1000 == 0 {
 		err := as.added.F.Close()
@@ -167,8 +149,20 @@ func (as *AntriServer) writeNewMessageToWal(item *ds.PqItem) {
 		if err != nil {
 			log.Fatalf("Opening new log file failed with error -> %v", err)
 		}
-		as.added.N = 1
+		as.added.N = 0
 	}
+}
+
+// separate commit point from adding to in-memory data structure
+// dont wanna block read because of fsync
+// after this function returns, the message is considered committed
+func (as *AntriServer) writeNewMessageToWal(item *ds.PqItem) {
+	as.added.M.Lock()
+	ok := WriteNewMessageToLog(as.added.F, item)
+	if !ok {
+		panic("failed writing to log!")
+	}
+	as.rollNewMessageWal()
 	as.added.M.Unlock()
 }
 func (as *AntriServer) addNewMessageToInMemoryDS(item *ds.PqItem) {
@@ -214,10 +208,8 @@ func (as *AntriServer) addToInflightStorer(key string, item *ds.PqItem) {
 	as.inflightMutex.Unlock()
 }
 
-// RetrieveTask takes a task from in-memory ds
-// and move it to in-memory map
-// Available via GET method, at /retrieve
-func (as *AntriServer) RetrieveTask(ctx *fasthttp.RequestCtx) {
+// get next message that has passed its scheduled time
+func (as *AntriServer) getReadyToBeRetrievedMessage() *ds.PqItem {
 	var res *ds.PqItem
 	var placeholder *ds.PqItem
 	var timediff int64
@@ -247,6 +239,14 @@ func (as *AntriServer) RetrieveTask(ctx *fasthttp.RequestCtx) {
 		break
 	}
 
+	return res
+}
+
+// RetrieveTask takes a task from in-memory ds
+// and move it to in-memory map
+// Available via GET method, at /retrieve
+func (as *AntriServer) RetrieveTask(ctx *fasthttp.RequestCtx) {
+	res := as.getReadyToBeRetrievedMessage()
 	as.addToInflightStorer(res.Key, res)
 
 	// this should NOT error
@@ -306,6 +306,16 @@ func (as *AntriServer) CommitTask(ctx *fasthttp.RequestCtx) {
 	ctx.WriteString("OK")
 }
 
+func (as *AntriServer) writeRetryOccurenceToWal(item *ds.PqItem) {
+	as.added.M.Lock()
+	ok := WriteRetriesOccurenceToLog(as.added.F, item)
+	if !ok {
+		panic("failed writing to log!")
+	}
+	as.rollNewMessageWal()
+	as.added.M.Unlock()
+}
+
 // RejectTask checks if the given key is currently inflight
 // if found, it removes the key from the inflightRecords, and put it back to pq
 // if not found, returns error
@@ -325,9 +335,10 @@ func (as *AntriServer) RejectTask(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	// for now, add 10s for retries delay
+	// for now, add 5s for retries delay
 	item.Retries++
 	item.ScheduledAt = time.Now().Unix() + 5
+	as.writeRetryOccurenceToWal(item)
 	as.addNewMessageToInMemoryDS(item)
 
 	ctx.WriteString("OK")
@@ -380,18 +391,14 @@ func (as *AntriServer) taskTimeoutWatchdog() {
 			}
 			as.inflightMutex.Unlock()
 
-			as.mutex.Lock()
+			// either way, we need to put it individually
+			// while batching may seems faster
+			// but we also may surpassed the task number limit
+			// unless it is allowed
 			for _, item := range itemArr {
-				for as.pq.HeapSize() == as.maxsize {
-					as.notFull.Wait()
-				}
-				as.pq.Insert(item)
-
-				// have to be put inside
-				// so workers can know that items may be taken
-				as.notEmpty.Signal()
+				as.writeRetryOccurenceToWal(item)
+				as.addNewMessageToInMemoryDS(item)
 			}
-			as.mutex.Unlock()
 		}
 	}
 }

@@ -9,7 +9,7 @@ import (
 	"github.com/aarondwi/antri/ds"
 )
 
-func TestWriteReadPqitemToLog(t *testing.T) {
+func TestWriteReadNewMessage(t *testing.T) {
 	now := time.Now().Unix()
 	buf := new(bytes.Buffer)
 
@@ -19,19 +19,41 @@ func TestWriteReadPqitemToLog(t *testing.T) {
 		Value:       "ど いたしまして",
 		Retries:     7}
 
-	ok := WritePqItemToLog(buf, src)
+	ok := WriteNewMessageToLog(buf, src)
 	if !ok {
-		log.Fatalf("if success should return `true`, but it is `false`")
+		log.Fatalf("write new message should return `true`, but it is `false`")
 	}
-	dst := ReadPqItemFromLog(buf)
+	ok = WriteRetriesOccurenceToLog(buf, src)
+	if !ok {
+		log.Fatalf("write retry occurence should return `true`, but it is `false`")
+	}
+
+	// re-read the message
+	dst, ok := ReadMessageFromLog(buf)
+	if !ok {
+		log.Fatalf("reading message should be true, but it is not")
+	}
 	if dst == nil {
 		log.Fatalf("Should not be nil!")
 	}
-	if src.ScheduledAt != dst.ScheduledAt ||
-		src.Key != dst.Key ||
-		src.Value != dst.Value ||
-		src.Retries != dst.Retries {
-		log.Fatalf("Expected %v, got %v", src, dst)
+	if src.ScheduledAt != dst.item.ScheduledAt ||
+		src.Key != dst.item.Key ||
+		src.Value != dst.item.Value ||
+		src.Retries != dst.item.Retries {
+		log.Fatalf("Expected %v, got %v", src, dst.item)
+	}
+
+	// re-read the retry occurence
+	dst, ok = ReadMessageFromLog(buf)
+	if !ok {
+		log.Fatalf("reading message should be true, but it is not")
+	}
+	if dst == nil {
+		log.Fatalf("Should not be nil!")
+	}
+	if dst.retry.retryKey != src.Key ||
+		dst.retry.scheduledAt != src.ScheduledAt {
+		log.Fatalf("Corrupted retry message, expected %s, got %v", src.Key, dst.retry)
 	}
 }
 
