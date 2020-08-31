@@ -46,14 +46,15 @@ By default, the task is given 10 seconds to commit/reject before considered `dea
 
 If no task currently exists in the internal data structure, the `/retrieve` API will block until a task is present, whether from `/add` or the timeout of previous retrieval
 
-After that, you can commit or reject(put it back to the queue, for now) your task like below
+After that, you can commit or reject(put it back to the queue, for now) your task like below. For reject API, you can also give `secondsfromnow` value, to indicate how long from now should the task be visible again. By default, that value is 5s.
 
 ```shell
 # for commit
 curl -XPOST http://127.0.0.1:8080/{task key}/commit
 
 # for reject
-curl -XPOST http://127.0.0.1:8080/{task key}/reject
+# secondsfromnow 10s means the task will be visible 10s from reject time
+curl -XPOST http://127.0.0.1:8080/{task key}/reject -d 'secondsfromnow=10'
 ```
 
 where task key is the attribute named `key` in the `/retrieve` API

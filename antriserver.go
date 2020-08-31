@@ -6,6 +6,7 @@ import (
 	"log"
 	"math/rand"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 
@@ -293,7 +294,7 @@ func (as *AntriServer) CommitTask(ctx *fasthttp.RequestCtx) {
 	// no need to do this inside the lock
 	if !ok {
 		ctx.SetStatusCode(404)
-		fmt.Fprint(ctx, "Task Key not found")
+		fmt.Fprint(ctx, "Task Key not found\n")
 		return
 	}
 
@@ -303,7 +304,7 @@ func (as *AntriServer) CommitTask(ctx *fasthttp.RequestCtx) {
 
 	as.writeCommitKeyToWal([]byte(taskKey))
 
-	ctx.WriteString("OK")
+	ctx.WriteString("OK\n")
 }
 
 func (as *AntriServer) writeRetryOccurenceToWal(item *ds.PqItem) {
@@ -320,6 +321,21 @@ func (as *AntriServer) writeRetryOccurenceToWal(item *ds.PqItem) {
 // if found, it removes the key from the inflightRecords, and put it back to pq
 // if not found, returns error
 func (as *AntriServer) RejectTask(ctx *fasthttp.RequestCtx) {
+	secondsfromnow := 5 // default to 5s
+	if len(ctx.FormValue("secondsfromnow")) > 0 {
+		secondsfromnow, err := strconv.Atoi(string(ctx.FormValue("secondsfromnow")))
+		if err != nil {
+			ctx.SetStatusCode(400)
+			fmt.Fprint(ctx, "Failed reading the value of `secondsfromnow`. Did you pass a proper integer value?\n")
+			return
+		}
+		if secondsfromnow < 0 {
+			ctx.SetStatusCode(400)
+			fmt.Fprint(ctx, "If provided, the value of `secondsfromnow` should be zero or positive\n")
+			return
+		}
+	}
+
 	taskKey := ctx.UserValue("taskKey").(string)
 	as.inflightMutex.Lock()
 	item, ok := as.inflightRecords.Get(taskKey)
@@ -331,17 +347,16 @@ func (as *AntriServer) RejectTask(ctx *fasthttp.RequestCtx) {
 	// no need to do this inside the lock
 	if !ok {
 		ctx.SetStatusCode(404)
-		fmt.Fprint(ctx, "Task Key not found")
+		fmt.Fprint(ctx, "Task Key not found\n")
 		return
 	}
 
-	// for now, add 5s for retries delay
 	item.Retries++
-	item.ScheduledAt = time.Now().Unix() + 5
+	item.ScheduledAt = time.Now().Unix() + int64(secondsfromnow)
 	as.writeRetryOccurenceToWal(item)
 	as.addNewMessageToInMemoryDS(item)
 
-	ctx.WriteString("OK")
+	ctx.WriteString("OK\n")
 }
 
 // 2 internal asynchronous functions

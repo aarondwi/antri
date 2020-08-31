@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -175,6 +176,45 @@ func TestAddRetrieveRejectThenReretrieve(t *testing.T) {
 
 	if res.StatusCode() != 200 {
 		t.Fatalf("Expected Status 200 OK, got %d", res.StatusCode())
+	}
+}
+
+func TestRejectError(t *testing.T) {
+	server := fasthttp.Server{
+		Handler:     NewAntriServerRouter(as).Handler,
+		Concurrency: 2,
+	}
+
+	ln, _ := reuseport.Listen("tcp4", addr)
+	defer ln.Close()
+	go func() { _ = server.Serve(ln) }()
+
+	req := fasthttp.AcquireRequest()
+	res := fasthttp.AcquireResponse()
+	defer fasthttp.ReleaseRequest(req)
+	defer fasthttp.ReleaseResponse(res)
+
+	req.SetRequestURI(httpaddr + "/nosuchkey/reject")
+	req.Header.SetMethod("POST")
+	req.PostArgs().AddBytesKV([]byte("secondsfromnow"), []byte("helloworld"))
+	client.Do(req, res)
+	if res.StatusCode() != 400 {
+		t.Fatalf(
+			"Expected Status 400 Bad Request because `secondsfromnow` is not an integer, but got %d",
+			res.StatusCode())
+	}
+
+	req.Reset()
+	res.Reset()
+
+	req.SetRequestURI(httpaddr + "/nosuchkey/reject")
+	req.Header.SetMethod("POST")
+	req.PostArgs().AddBytesKV([]byte("secondsfromnow"), []byte(strconv.Itoa(-10)))
+	client.Do(req, res)
+	if res.StatusCode() != 400 {
+		t.Fatalf(
+			"Expected Status 400 Bad Request because `secondsfromnow` is negative, but got %d",
+			res.StatusCode())
 	}
 }
 
