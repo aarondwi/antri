@@ -418,6 +418,13 @@ func (as *AntriServer) taskTimeoutWatchdog() {
 	}
 }
 
+// Close all the underlying system
+func (as *AntriServer) Close() {
+	log.Println("Closing all files...")
+	as.added.F.Close()
+	as.taken.F.Close()
+}
+
 // NewAntriServerRouter returns fasthttp/router that already set with AntriServer handler
 // Also seed the rng
 func NewAntriServerRouter(as *AntriServer) *router.Router {
