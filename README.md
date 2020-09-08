@@ -85,9 +85,8 @@ To Do:
 ------------------------------------------------------
 
 1. snapshot, for recovery -> following redis/LSM-tree model (rolling log already implemented)
-2. properly implement shutdown (over admin api too perhaps?)
-3. optional cluster (raft / lock-service based)
-4. optional dead letter queue
+2. optional cluster (raft / lock-service based)
+3. optional dead letter queue
 
 Notes
 ------------------------------------------------------
@@ -128,12 +127,12 @@ Possible optimization
 
 1. batch file write using fsync (based on time and/or number)
 
-    * currently using os.O_SYNC flag (so synced on every write), but on windows (as of august 2020), the official golang compiler does not map O_SYNC to windows equivalent, so it is currently unsafe on windows.
+    * currently using os.O_SYNC flag (so synced on every write), but on windows (as of august 2020), the official golang compiler does not map O_SYNC to windows equivalent, so it is currently unsafe (but fast) on windows.
 
 2. reduce lock contention. Wwhat has come to mind:
 
     * change pq and sl to use lock-free data structure
-    * try simple array as internal DS + a b-tree/skiplist for index order, to reduce the number of swapping
+    * try simple array as internal DS + a b-tree/skiplist for index order, to reduce the number of swapping (also removes all usage of orderedmap)
     * Use multiple internal queue (but because pull-model, comes problem to decide how to get from those)
 
 3. use batching on internal api, e.g. on re-put dead task to wal and queue

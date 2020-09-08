@@ -30,7 +30,7 @@ import (
 func WriteNewMessageToLog(w io.Writer, pi *ds.PqItem) bool {
 	buf := make([]byte, 17)
 
-	buf[0] = 0 // new message indicator
+	buf[0] = 0 // NEW indicator
 	binary.LittleEndian.PutUint64(buf[1:], uint64(pi.ScheduledAt))
 	binary.LittleEndian.PutUint16(buf[9:], uint16(len(pi.Key)))
 	binary.LittleEndian.PutUint32(buf[11:], uint32(len(pi.Value)))
@@ -66,7 +66,7 @@ func WriteNewMessageToLog(w io.Writer, pi *ds.PqItem) bool {
 func WriteRetriesOccurenceToLog(w io.Writer, pi *ds.PqItem) bool {
 	buf := make([]byte, 11)
 
-	buf[0] = 1 // retry indicator
+	buf[0] = 1 // RETRY indicator
 	binary.LittleEndian.PutUint64(buf[1:], uint64(pi.ScheduledAt))
 	binary.LittleEndian.PutUint16(buf[9:], uint16(len(pi.Key)))
 	buf = append(buf, pi.Key...)
@@ -80,121 +80,16 @@ func WriteRetriesOccurenceToLog(w io.Writer, pi *ds.PqItem) bool {
 	return true
 }
 
-type retryWrapper struct {
-	retryKey    string
-	scheduledAt int64
-}
-
-// MsgWrapper wraps 2 type of values,
-// either a new message, or a retry key
-type MsgWrapper struct {
-	item  *ds.PqItem
-	retry retryWrapper
-}
-
-// ReadMessageFromLog reads log into a *ds.PqItem.
-// Designed as a method because gonna be using sync.Pool later.
-func ReadMessageFromLog(r io.Reader) (*MsgWrapper, bool) {
-	indicatorHolder := make([]byte, 1)
-	int16holder := make([]byte, 2)
-	int32holder := make([]byte, 4)
-	int64holder := make([]byte, 8)
-
-	n, err := r.Read(indicatorHolder)
-	if n == 0 || err != nil {
-		log.Printf("failed parsing indicator: %d", n)
-		return nil, false
-	}
-
-	indicator := indicatorHolder[0]
-	if indicator == 0 { // new message
-		n, err = r.Read(int64holder)
-		if n == 0 || err != nil {
-			log.Printf("failed parsing scheduledAt: %d", n)
-			return nil, false
-		}
-		scheduledAtRead := binary.LittleEndian.Uint64(int64holder)
-
-		n, err = r.Read(int16holder)
-		if n == 0 || err != nil {
-			log.Printf("failed parsing lengthOfKey: %d", n)
-			return nil, false
-		}
-		lengthOfKeyRead := binary.LittleEndian.Uint16(int16holder)
-
-		n, err = r.Read(int32holder)
-		if n == 0 || err != nil {
-			log.Printf("failed parsing lengthOfValue: %d", n)
-			return nil, false
-		}
-		lengthOfValueRead := binary.LittleEndian.Uint32(int32holder)
-
-		n, err = r.Read(int16holder)
-		if n == 0 || err != nil {
-			log.Printf("failed parsing numOfRetries: %d", n)
-			return nil, false
-		}
-		numOfRetriesRead := binary.LittleEndian.Uint16(int16holder)
-
-		keyBytes, err := ioutil.ReadAll(io.LimitReader(r, int64(lengthOfKeyRead)))
-		if err != nil {
-			log.Printf("failed reading key: %v", err)
-			return nil, false
-		}
-
-		valueBytes, err := ioutil.ReadAll(io.LimitReader(r, int64(lengthOfValueRead)))
-		if err != nil {
-			log.Printf("failed reading value: %v", err)
-			return nil, false
-		}
-
-		return &MsgWrapper{
-			item: &ds.PqItem{
-				ScheduledAt: int64(scheduledAtRead),
-				Key:         string(keyBytes),
-				Value:       string(valueBytes),
-				Retries:     int16(numOfRetriesRead)},
-		}, true
-	} else if indicator == 1 {
-		n, err = r.Read(int64holder)
-		if n == 0 || err != nil {
-			log.Printf("failed parsing scheduledAt: %d", n)
-			return nil, false
-		}
-		scheduledAtRead := binary.LittleEndian.Uint64(int64holder)
-
-		n, err = r.Read(int16holder)
-		if n == 0 || err != nil {
-			log.Printf("failed parsing lengthOfKey: %d", n)
-			return nil, false
-		}
-		lengthOfKeyRead := binary.LittleEndian.Uint16(int16holder)
-
-		keyBytes, err := ioutil.ReadAll(io.LimitReader(r, int64(lengthOfKeyRead)))
-		if err != nil {
-			log.Printf("failed reading key: %v", err)
-			return nil, false
-		}
-
-		return &MsgWrapper{
-			retry: retryWrapper{
-				retryKey:    string(keyBytes),
-				scheduledAt: int64(scheduledAtRead),
-			}}, true
-	} else {
-		log.Fatalf("Unknown indicator number: %d", indicator)
-		return nil, false
-	}
-}
-
-// WriteCommittedKeyToLog writes key that is taken already
+// WriteCommitMessageToLog writes key that is taken already
 //
 // after written here, the task is considered committed
 //
 // format -> 2 bytes length of key + key
-func WriteCommittedKeyToLog(w io.Writer, key []byte) bool {
-	buf := make([]byte, 2)
-	binary.LittleEndian.PutUint16(buf, uint16(len(key)))
+func WriteCommitMessageToLog(w io.Writer, key []byte) bool {
+	buf := make([]byte, 3)
+
+	buf[0] = 2 // COMMIT indicator
+	binary.LittleEndian.PutUint16(buf[1:], uint16(len(key)))
 
 	buf = append(buf, key...)
 
@@ -206,22 +101,131 @@ func WriteCommittedKeyToLog(w io.Writer, key []byte) bool {
 	return true
 }
 
-// ReadCommittedKeyFromLog reads the given reader
-// to get 1 committed key
-func ReadCommittedKeyFromLog(r io.Reader) (string, bool) {
+// MsgWrapper wraps msgType with an object of ds.PqItemMsgWrapper
+// the MsgType:
+//
+// 0. NEW message
+//
+// 1. RETRY message
+//
+// 2. COMMIT message
+type MsgWrapper struct {
+	msgType uint8
+	item    ds.PqItem
+}
+
+// ReadLog reads log into a *ds.PqItem.
+// Designed as a method because gonna be using sync.Pool later.
+func ReadLog(r io.Reader) (MsgWrapper, bool) {
+	indicatorHolder := make([]byte, 1)
 	int16holder := make([]byte, 2)
-	n, err := r.Read(int16holder)
+	int32holder := make([]byte, 4)
+	int64holder := make([]byte, 8)
+
+	n, err := r.Read(indicatorHolder)
 	if n == 0 || err != nil {
-		log.Printf("failed parsing lengthOfKey: %d -> %v", n, err)
-		return "", false
-	}
-	lengthOfKeyRead := binary.LittleEndian.Uint16(int16holder)
-
-	keyBytes, err := ioutil.ReadAll(io.LimitReader(r, int64(lengthOfKeyRead)))
-	if err != nil {
-		log.Printf("failed reading key: %v", err)
-		return "", false
+		log.Printf("failed parsing indicator: %d", n)
+		return MsgWrapper{}, false
 	}
 
-	return string(keyBytes), true
+	indicator := indicatorHolder[0]
+	if indicator == 0 { // new message
+		n, err = r.Read(int64holder)
+		if n == 0 || err != nil {
+			log.Printf("failed parsing scheduledAt: %d", n)
+			return MsgWrapper{}, false
+		}
+		scheduledAtRead := binary.LittleEndian.Uint64(int64holder)
+
+		n, err = r.Read(int16holder)
+		if n == 0 || err != nil {
+			log.Printf("failed parsing lengthOfKey: %d", n)
+			return MsgWrapper{}, false
+		}
+		lengthOfKeyRead := binary.LittleEndian.Uint16(int16holder)
+
+		n, err = r.Read(int32holder)
+		if n == 0 || err != nil {
+			log.Printf("failed parsing lengthOfValue: %d", n)
+			return MsgWrapper{}, false
+		}
+		lengthOfValueRead := binary.LittleEndian.Uint32(int32holder)
+
+		n, err = r.Read(int16holder)
+		if n == 0 || err != nil {
+			log.Printf("failed parsing numOfRetries: %d", n)
+			return MsgWrapper{}, false
+		}
+		numOfRetriesRead := binary.LittleEndian.Uint16(int16holder)
+
+		keyBytes, err := ioutil.ReadAll(io.LimitReader(r, int64(lengthOfKeyRead)))
+		if err != nil {
+			log.Printf("failed reading key: %v", err)
+			return MsgWrapper{}, false
+		}
+
+		valueBytes, err := ioutil.ReadAll(io.LimitReader(r, int64(lengthOfValueRead)))
+		if err != nil {
+			log.Printf("failed reading value: %v", err)
+			return MsgWrapper{}, false
+		}
+
+		return MsgWrapper{
+			msgType: 0,
+			item: ds.PqItem{
+				ScheduledAt: int64(scheduledAtRead),
+				Key:         string(keyBytes),
+				Value:       string(valueBytes),
+				Retries:     int16(numOfRetriesRead)},
+		}, true
+	} else if indicator == 1 {
+		n, err = r.Read(int64holder)
+		if n == 0 || err != nil {
+			log.Printf("failed parsing scheduledAt: %d", n)
+			return MsgWrapper{}, false
+		}
+		scheduledAtRead := binary.LittleEndian.Uint64(int64holder)
+
+		n, err = r.Read(int16holder)
+		if n == 0 || err != nil {
+			log.Printf("failed parsing lengthOfKey: %d", n)
+			return MsgWrapper{}, false
+		}
+		lengthOfKeyRead := binary.LittleEndian.Uint16(int16holder)
+
+		keyBytes, err := ioutil.ReadAll(io.LimitReader(r, int64(lengthOfKeyRead)))
+		if err != nil {
+			log.Printf("failed reading key: %v", err)
+			return MsgWrapper{}, false
+		}
+
+		return MsgWrapper{
+			msgType: 1,
+			item: ds.PqItem{
+				ScheduledAt: int64(scheduledAtRead),
+				Key:         string(keyBytes)},
+		}, true
+	} else if indicator == 2 {
+		n, err := r.Read(int16holder)
+		if n == 0 || err != nil {
+			log.Printf("failed parsing lengthOfKey: %d -> %v", n, err)
+			return MsgWrapper{}, false
+		}
+		lengthOfKeyRead := binary.LittleEndian.Uint16(int16holder)
+
+		keyBytes, err := ioutil.ReadAll(io.LimitReader(r, int64(lengthOfKeyRead)))
+		if err != nil {
+			log.Printf("failed reading key: %v", err)
+			return MsgWrapper{}, false
+		}
+
+		return MsgWrapper{
+			msgType: 2,
+			item: ds.PqItem{
+				Key: string(keyBytes)},
+		}, true
+	} else {
+		log.Fatalf("Unknown indicator number: %d", indicator)
+		return MsgWrapper{}, false
+	}
 }

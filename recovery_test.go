@@ -9,7 +9,7 @@ import (
 	"github.com/aarondwi/antri/ds"
 )
 
-func TestWriteReadNewMessage(t *testing.T) {
+func TestWriteReadMessage(t *testing.T) {
 	now := time.Now().Unix()
 	buf := new(bytes.Buffer)
 
@@ -27,50 +27,39 @@ func TestWriteReadNewMessage(t *testing.T) {
 	if !ok {
 		log.Fatalf("write retry occurence should return `true`, but it is `false`")
 	}
-
-	// re-read the message
-	dst, ok := ReadMessageFromLog(buf)
+	ok = WriteCommitMessageToLog(buf, []byte(src.Key))
 	if !ok {
-		log.Fatalf("reading message should be true, but it is not")
+		log.Fatalf("write commit message should return `true`, but it is `false`")
 	}
-	if dst == nil {
-		log.Fatalf("Should not be nil!")
+
+	// re-read the NEW message
+	dst, ok := ReadLog(buf)
+	if !ok {
+		log.Fatalf("reading NEW message should return `true`, but it is not")
 	}
 	if src.ScheduledAt != dst.item.ScheduledAt ||
 		src.Key != dst.item.Key ||
 		src.Value != dst.item.Value ||
 		src.Retries != dst.item.Retries {
-		log.Fatalf("Expected %v, got %v", src, dst.item)
+		log.Fatalf("Corrupted NEW message, expected %v, got %v", src, dst.item)
 	}
 
-	// re-read the retry occurence
-	dst, ok = ReadMessageFromLog(buf)
+	// re-read the RETRY message
+	dst, ok = ReadLog(buf)
 	if !ok {
-		log.Fatalf("reading message should be true, but it is not")
+		log.Fatalf("reading RETRY message should return `true`, but it is not")
 	}
-	if dst == nil {
-		log.Fatalf("Should not be nil!")
+	if dst.item.Key != src.Key ||
+		dst.item.ScheduledAt != src.ScheduledAt {
+		log.Fatalf("Corrupted RETRY message, expected %s and %d, got %s and %d", src.Key, src.ScheduledAt, dst.item.Key, dst.item.ScheduledAt)
 	}
-	if dst.retry.retryKey != src.Key ||
-		dst.retry.scheduledAt != src.ScheduledAt {
-		log.Fatalf("Corrupted retry message, expected %s, got %v", src.Key, dst.retry)
-	}
-}
 
-func TestWriteReadForCommit(t *testing.T) {
-	buf := new(bytes.Buffer)
-	src := "ありがとう ございます"
-
-	ok := WriteCommittedKeyToLog(buf, []byte(src))
+	// re-read the COMMIT message
+	dst, ok = ReadLog(buf)
 	if !ok {
-		log.Fatalf("if success should return `true`, but it is `false`")
+		log.Fatalf("reading COMMIT message should return `true`, but it is not")
 	}
-
-	dst, ok := ReadCommittedKeyFromLog(buf)
-	if !ok {
-		log.Fatalf("Should be `true`!, but it is not")
-	}
-	if src != dst {
-		log.Fatalf("Some changes happen from write to read: %s -> %s", src, dst)
+	if dst.item.Key != src.Key {
+		log.Fatalf("Corrupted COMMIT message, expected %s, got %s", src.Key, dst.item.Key)
 	}
 }

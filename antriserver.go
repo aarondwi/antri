@@ -3,10 +3,13 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"math/rand"
 	"os"
+	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -18,8 +21,7 @@ import (
 var letterBytes = []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
 var fileFlag = os.O_APPEND | os.O_CREATE | os.O_RDWR | os.O_SYNC
 var fileMode = os.FileMode(0644)
-var addedFileFormat = "added-%031d.log"
-var takenFileFormat = "taken-%031d.log"
+var walFilenameFormat = "data/wal-%16d"
 
 func randStringBytes(n int) []byte {
 	b := make([]byte, n)
@@ -55,11 +57,9 @@ type AntriServer struct {
 	taskTimeout     int
 
 	// durability option
-	added *wal
-	taken *wal
+	walFile *wal
 
 	// asynchronous snapshot
-	checkpointFile     *os.File
 	checkpointDuration int
 }
 
@@ -82,14 +82,17 @@ func NewAntriServer(maxsize, taskTimeout, checkpointDuration int) (*AntriServer,
 		return nil, fmt.Errorf("checkpointDuration should be positive, received %d", checkpointDuration)
 	}
 
-	// addTask + retrieveTask path
 	mutex := sync.Mutex{}
 	notEmpty := sync.NewCond(&mutex)
 	notFull := sync.NewCond(&mutex)
 
+	if _, err := os.Stat("data/"); os.IsNotExist(err) {
+		os.Mkdir("data/", fileMode)
+	}
+
+	// access to file
 	addedMutex := sync.Mutex{}
-	addedFile, err := os.OpenFile(
-		fmt.Sprintf(addedFileFormat, 1), fileFlag, fileMode)
+	addedFile, err := os.OpenFile(fmt.Sprintf(walFilenameFormat, 1), fileFlag, fileMode)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -97,19 +100,6 @@ func NewAntriServer(maxsize, taskTimeout, checkpointDuration int) (*AntriServer,
 	// inflight path
 	inflightMutex := sync.Mutex{}
 	inflightRecords := ds.NewOrderedMap(int64(taskTimeout))
-
-	// commitTask path
-	takenMutex := sync.Mutex{}
-	takenFile, err := os.OpenFile(
-		fmt.Sprintf(takenFileFormat, 1), fileFlag, fileMode)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	checkpointFile, err := os.OpenFile("snapshot", fileFlag, fileMode)
-	if err != nil {
-		log.Fatal(err)
-	}
 
 	as := &AntriServer{
 		mutex:           &mutex,
@@ -119,38 +109,32 @@ func NewAntriServer(maxsize, taskTimeout, checkpointDuration int) (*AntriServer,
 		maxsize:         maxsize,
 		inflightMutex:   &inflightMutex,
 		inflightRecords: inflightRecords,
-		added: &wal{
+		walFile: &wal{
 			M: &addedMutex,
 			F: addedFile,
 			C: 1,
 			N: 0},
-		taken: &wal{
-			M: &takenMutex,
-			F: takenFile,
-			C: 1,
-			N: 0},
 		checkpointDuration: checkpointDuration,
-		checkpointFile:     checkpointFile,
 	}
 	go as.taskTimeoutWatchdog()
 	// go as.snapshotter()
 	return as, nil
 }
 
-func (as *AntriServer) rollNewMessageWal() {
-	as.added.N++
-	if as.added.N%1000 == 0 {
-		err := as.added.F.Close()
+func (as *AntriServer) rollWal() {
+	as.walFile.N++
+	if as.walFile.N%1000 == 0 {
+		err := as.walFile.F.Close()
 		if err != nil {
 			log.Fatalf("Fail closing log file with error -> %v", err)
 		}
 
-		as.added.C++
-		as.added.F, err = os.OpenFile(fmt.Sprintf(addedFileFormat, as.added.C), fileFlag, fileMode)
+		as.walFile.C++
+		as.walFile.F, err = os.OpenFile(fmt.Sprintf(walFilenameFormat, as.walFile.C), fileFlag, fileMode)
 		if err != nil {
 			log.Fatalf("Opening new log file failed with error -> %v", err)
 		}
-		as.added.N = 0
+		as.walFile.N = 0
 	}
 }
 
@@ -158,13 +142,13 @@ func (as *AntriServer) rollNewMessageWal() {
 // dont wanna block read because of fsync
 // after this function returns, the message is considered committed
 func (as *AntriServer) writeNewMessageToWal(item *ds.PqItem) {
-	as.added.M.Lock()
-	ok := WriteNewMessageToLog(as.added.F, item)
+	as.walFile.M.Lock()
+	ok := WriteNewMessageToLog(as.walFile.F, item)
 	if !ok {
 		panic("failed writing to log!")
 	}
-	as.rollNewMessageWal()
-	as.added.M.Unlock()
+	as.rollWal()
+	as.walFile.M.Unlock()
 }
 func (as *AntriServer) addNewMessageToInMemoryDS(item *ds.PqItem) {
 	as.mutex.Lock()
@@ -257,26 +241,13 @@ func (as *AntriServer) RetrieveTask(ctx *fasthttp.RequestCtx) {
 }
 
 func (as *AntriServer) writeCommitKeyToWal(key []byte) {
-	as.taken.M.Lock()
-	ok := WriteCommittedKeyToLog(as.taken.F, key)
+	as.walFile.M.Lock()
+	ok := WriteCommitMessageToLog(as.walFile.F, key)
 	if !ok {
 		panic("failed to commit key!")
 	}
-	as.taken.N++
-	if as.taken.N%1000 == 0 {
-		err := as.taken.F.Close()
-		if err != nil {
-			log.Fatalf("Fail closing log file with error -> %v", err)
-		}
-
-		as.taken.C++
-		as.taken.F, err = os.OpenFile(fmt.Sprintf(takenFileFormat, as.taken.C), fileFlag, fileMode)
-		if err != nil {
-			log.Fatalf("Opening new log file failed with error -> %v", err)
-		}
-		as.taken.N = 1
-	}
-	as.taken.M.Unlock()
+	as.rollWal()
+	as.walFile.M.Unlock()
 }
 
 // CommitTask checks if the given key is currently inflight
@@ -308,13 +279,13 @@ func (as *AntriServer) CommitTask(ctx *fasthttp.RequestCtx) {
 }
 
 func (as *AntriServer) writeRetryOccurenceToWal(item *ds.PqItem) {
-	as.added.M.Lock()
-	ok := WriteRetriesOccurenceToLog(as.added.F, item)
+	as.walFile.M.Lock()
+	ok := WriteRetriesOccurenceToLog(as.walFile.F, item)
 	if !ok {
 		panic("failed writing to log!")
 	}
-	as.rollNewMessageWal()
-	as.added.M.Unlock()
+	as.rollWal()
+	as.walFile.M.Unlock()
 }
 
 // RejectTask checks if the given key is currently inflight
@@ -359,25 +330,71 @@ func (as *AntriServer) RejectTask(ctx *fasthttp.RequestCtx) {
 	ctx.WriteString("OK\n")
 }
 
-// 2 internal asynchronous functions
-// and both are run on other goroutines
+// get all files matching the `word`, until the `limit`
+func listItemInDirMatchingARegex(files []os.FileInfo, wordToMatch, limit string) []string {
+	result := []string{}
+	for _, f := range files {
+		if strings.Contains(f.Name(), wordToMatch) &&
+			strings.Compare(f.Name(), limit) == -1 {
+			result = append(result, f.Name())
+		}
+	}
+
+	sort.Strings(result)
+	return result
+}
+
+// snapshotter create snapshot file of current state asynchronously
+// to speed-up the recovery process
+// the commit point is when we fsync the new checkpoint file
+// after that, all previous checkpoint and logs are considered obsolete
+// and may be deleted
 func (as *AntriServer) snapshotter() {
-	// based on
-	// https://gist.github.com/wrfly/1a3239cd2f78ee68157ebc9b987f565b
-	// pwd, err := os.Getwd()
-	// if err != nil {
-	// 	log.Fatalf("getwd err: %s", err)
-	// }
-	// procAttr := syscall.ProcAttr{
-	// 	Dir:   pwd,
-	// 	Env:   []string{},
-	// 	Files: []uintptr{as.checkpointFile.Fd()},
-	// 	Sys:   nil,
-	// }
 	ticker := time.NewTicker(time.Duration(as.checkpointDuration) * time.Second)
 	for {
 		select {
 		case <-ticker.C:
+			// can safely read these 2 files without locks
+			// as if it changed, it only goes forward, not backwards
+			// currentAddedFilename := as.added.F.Name()
+			// currentTakenFilename := as.taken.F.Name()
+
+			files, err := ioutil.ReadDir("./")
+			if err != nil {
+				log.Fatalf("Failed reading directory for snapshot: %v", err)
+			}
+
+			log.Printf("Snapshotting started at %d", time.Now().Unix())
+			// create new names first, so can be used to match and limit files read
+			// also create placeholder files
+			// which will hold the curretn snapshot data
+			// we don't directly writes into snapshot file
+			// cause it may crashes in the middle (not atomic for writing more than 1 page)
+			// instead, we will atomically rename the file into snapshot after all done
+			newSnapshotFilename := fmt.Sprintf("snapshot-%d", time.Now().Unix())
+			placeholderFilename := fmt.Sprintf("placeholder-%d", time.Now().Unix())
+			checkpointFiles := listItemInDirMatchingARegex(files, "snapshot", newSnapshotFilename)
+
+			// read the snapshot, check where to start begin reading added and taken
+			// generate intermediary state from the snapshot first
+			// read the necessary taken files, craete internal map for fast matching
+			// read the necessary added files, update the intermediary state as we read the files
+			// re-put the state into new checkpount file
+			// delete all added, taken, checkpoint until current snapshot
+
+			// itemPlaceholder := []ds.PqItem{}
+			if len(checkpointFiles) > 0 {
+				// we can open the old snapshot
+				// but only read the last one
+				// all other files are just undeleted files
+				// lastSnapshotFile := os.OpenFile(checkpointFiles[len(checkpointFiles)-1], fileFlag, fileMode)
+			}
+
+			err = os.Rename(placeholderFilename, newSnapshotFilename)
+			if err != nil {
+				log.Fatalf("Failed creating new snapshot files with error: %v", err)
+			}
+			log.Printf("Snapshotting finished at %d", time.Now().Unix())
 		default:
 		}
 	}
@@ -420,9 +437,8 @@ func (as *AntriServer) taskTimeoutWatchdog() {
 
 // Close all the underlying system
 func (as *AntriServer) Close() {
-	log.Println("Closing all files...")
-	as.added.F.Close()
-	as.taken.F.Close()
+	log.Println("Closing wal file...")
+	as.walFile.F.Close()
 }
 
 // NewAntriServerRouter returns fasthttp/router that already set with AntriServer handler

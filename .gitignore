@@ -15,6 +15,7 @@
 # vendor/
 
 # internal file
+data/
 *.log
 snapshot
 
