@@ -21,7 +21,7 @@ import (
 var letterBytes = []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
 var fileFlag = os.O_APPEND | os.O_CREATE | os.O_RDWR | os.O_SYNC
 var fileMode = os.FileMode(0644)
-var walFilenameFormat = "data/wal-%16d"
+var walFilenameFormat = "data/wal-%016d"
 
 func randStringBytes(n int) []byte {
 	b := make([]byte, n)
@@ -330,8 +330,8 @@ func (as *AntriServer) RejectTask(ctx *fasthttp.RequestCtx) {
 	ctx.WriteString("OK\n")
 }
 
-// get all files matching the `word`, until the `limit`
-func listItemInDirMatchingARegex(files []os.FileInfo, wordToMatch, limit string) []string {
+// get all files matching the `word`, until just before the `limit`
+func listOfItemInDirMatchingARegex(files []os.FileInfo, wordToMatch, limit string) []string {
 	result := []string{}
 	for _, f := range files {
 		if strings.Contains(f.Name(), wordToMatch) &&
@@ -343,67 +343,135 @@ func listItemInDirMatchingARegex(files []os.FileInfo, wordToMatch, limit string)
 	sort.Strings(result)
 	return result
 }
+func fileSequenceNumberAsString(filename string) string {
+	filenameSeparated := strings.Split(filename, "-")
+	return filenameSeparated[len(filenameSeparated)-1]
+}
 
-// snapshotter create snapshot file of current state asynchronously
-// to speed-up the recovery process
-// the commit point is when we fsync the new checkpoint file
-// after that, all previous checkpoint and logs are considered obsolete
+// snapshotter create snapshot file of current state asynchronously,
+// to speed-up the recovery process.
+//
+// the commit point is when we fsync the new checkpoint file.
+// After that, all previous checkpoint and logs are considered obsolete
 // and may be deleted
+//
+// the naming for the snapshot file includes the counter for wal files
+// snapshot-0000000000000003 means the snapshot of wal files until counter 3
 func (as *AntriServer) snapshotter() {
 	ticker := time.NewTicker(time.Duration(as.checkpointDuration) * time.Second)
 	for {
 		select {
 		case <-ticker.C:
-			// can safely read these 2 files without locks
-			// as if it changed, it only goes forward, not backwards
-			// currentAddedFilename := as.added.F.Name()
-			// currentTakenFilename := as.taken.F.Name()
+			as.walFile.M.Lock()
+			currentWalFilename := as.walFile.F.Name()
+			currentWalCounter := as.walFile.C
+			as.walFile.M.Unlock()
 
-			files, err := ioutil.ReadDir("./")
+			files, err := ioutil.ReadDir("data/")
 			if err != nil {
-				log.Fatalf("Failed reading directory for snapshot: %v", err)
+				log.Fatalf("Failed reading directory for snapshotting: %v", err)
 			}
 
 			log.Printf("Snapshotting started at %d", time.Now().Unix())
+
 			// create new names first, so can be used to match and limit files read
-			// also create placeholder files
-			// which will hold the curretn snapshot data
+			// also create placeholder files, which will hold the curretn snapshot data
 			// we don't directly writes into snapshot file
 			// cause it may crashes in the middle (not atomic for writing more than 1 page)
 			// instead, we will atomically rename the file into snapshot after all done
-			newSnapshotFilename := fmt.Sprintf("snapshot-%d", time.Now().Unix())
-			placeholderFilename := fmt.Sprintf("placeholder-%d", time.Now().Unix())
-			checkpointFiles := listItemInDirMatchingARegex(files, "snapshot", newSnapshotFilename)
+			lastCheckpointedWalFilename := ""
+			newSnapshotFilename := fmt.Sprintf("data/snapshot-%016d", currentWalCounter-1)
+			placeholderFilename := fmt.Sprintf("data/placeholder-%016d", currentWalCounter-1)
 
-			// read the snapshot, check where to start begin reading added and taken
-			// generate intermediary state from the snapshot first
-			// read the necessary taken files, craete internal map for fast matching
-			// read the necessary added files, update the intermediary state as we read the files
-			// re-put the state into new checkpount file
-			// delete all added, taken, checkpoint until current snapshot
-
-			// itemPlaceholder := []ds.PqItem{}
+			itemPlaceholder := []*ds.PqItem{}
+			checkpointFiles := listOfItemInDirMatchingARegex(files, "snapshot", newSnapshotFilename)
 			if len(checkpointFiles) > 0 {
-				// we can open the old snapshot
+				// we can open the old snapshot file
 				// but only read the last one
 				// all other files are just undeleted files
-				// lastSnapshotFile := os.OpenFile(checkpointFiles[len(checkpointFiles)-1], fileFlag, fileMode)
+				lastSnapshotFiles, err := os.OpenFile(checkpointFiles[len(checkpointFiles)-1], os.O_RDONLY, fileMode)
+				if err != nil {
+					log.Fatalf("Failed reading last snapshot file, which is `%s` with error %v",
+						checkpointFiles[len(checkpointFiles)-1], err)
+				}
+				defer lastSnapshotFiles.Close()
+
+				// record lastCheckpointedFilename
+				lastCheckpointedWalFilename = checkpointFiles[len(checkpointFiles)-1]
+
+				for {
+					placeholder, ok := ReadLog(lastSnapshotFiles)
+					if !ok { // mostly EOF
+						break
+					}
+					if placeholder.msgType != 0 {
+						log.Fatalf("CORRUPTED SNAPSHOT DATA!!!! Snapshot file may only contain NEW msgType, but found with code : %d",
+							placeholder.msgType)
+					}
+					itemPlaceholder = append(itemPlaceholder, &placeholder.item)
+				}
 			}
 
+			walFilesToBeCompacted := listOfItemInDirMatchingARegex(files, "wal", currentWalFilename)
+			sort.Strings(walFilesToBeCompacted)
+			if len(walFilesToBeCompacted) == 0 || (lastCheckpointedWalFilename != "" &&
+				strings.Compare(
+					fileSequenceNumberAsString(walFilesToBeCompacted[len(walFilesToBeCompacted)-1]),
+					fileSequenceNumberAsString(lastCheckpointedWalFilename)) <= 0) {
+				// need to check if no new files from name too
+				// means no new files for now
+				log.Printf("No new files, skipping ...")
+				continue
+			}
+
+			snapshotPlaceholderFile, err := os.OpenFile(
+				placeholderFilename,
+				os.O_APPEND|os.O_CREATE|os.O_WRONLY, fileMode)
+			if err != nil {
+				log.Fatalf("Failed creating placeholder file for snapshotting, with error: %v", err)
+			}
+			defer snapshotPlaceholderFile.Close()
+
+			for _, f := range walFilesToBeCompacted {
+				// only process those that has not yet been included to the previous snapshot
+				// to guarantee exactly once internally
+				if lastCheckpointedWalFilename != "" && strings.Compare(
+					fileSequenceNumberAsString(walFilesToBeCompacted[len(walFilesToBeCompacted)-1]),
+					fileSequenceNumberAsString(lastCheckpointedWalFilename)) <= 0 {
+					continue
+				}
+
+				walFile, err := os.OpenFile(f, os.O_RDONLY, fileMode)
+				if err != nil {
+					log.Fatalf("Failed reading wal file, which is `%s` with error %v", f, err)
+				}
+				defer walFile.Close()
+
+				// start reading data and whatnot here
+			}
+			err = snapshotPlaceholderFile.Sync()
+			if err != nil {
+				log.Fatalf("Failed fsync snapshot, exiting with error: %v", err)
+			}
+
+			// after this rename, snapshotting is considered done (COMMITTED)
 			err = os.Rename(placeholderFilename, newSnapshotFilename)
 			if err != nil {
 				log.Fatalf("Failed creating new snapshot files with error: %v", err)
 			}
 			log.Printf("Snapshotting finished at %d", time.Now().Unix())
+
+			// delete all wals, snapshots, and placeholders until current snapshot
 		default:
 		}
 	}
 }
+
+// taskTimeoutWatchdog watches all the in-flight task
+// to guarantee liveness of the data
 func (as *AntriServer) taskTimeoutWatchdog() {
 	// cause we always append to back
 	// we can be sure that this array is sorted on expireOn
-	//
-	// does this function also need to track the retries to file?
 	ticker := time.NewTicker(10 * time.Millisecond)
 	for {
 		select {
@@ -426,8 +494,9 @@ func (as *AntriServer) taskTimeoutWatchdog() {
 			// either way, we need to put it individually
 			// while batching may seems faster
 			// but we also may surpassed the task number limit
-			// unless it is allowed
+			// unless it is allowed (at least not yet)
 			for _, item := range itemArr {
+				item.Retries++
 				as.writeRetryOccurenceToWal(item)
 				as.addNewMessageToInMemoryDS(item)
 			}

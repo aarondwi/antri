@@ -281,6 +281,9 @@ func TestAddRetrieveTimeoutThenReretrieve(t *testing.T) {
 	if jsonRes.Key != keyToCheck {
 		t.Fatalf("Expected key %s, but got %s", keyToCheck, jsonRes.Key)
 	}
+	if jsonRes.Retries != 1 {
+		t.Fatalf("The retry number should be 1 after re-retrieve, but got %d", jsonRes.Retries)
+	}
 
 	req.Reset()
 	res.Reset()

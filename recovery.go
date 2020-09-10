@@ -14,7 +14,7 @@ import (
 //
 // our log format => 17 bytes metadata + key length + value length
 //
-// retry indicator (the value 0) -> 1 byte
+// NEW message indicator (the value 0) -> 1 byte
 //
 // scheduledAt int64 -> 8 bytes
 //
@@ -56,7 +56,7 @@ func WriteNewMessageToLog(w io.Writer, pi *ds.PqItem) bool {
 //
 // the retry format -> 11 bytes + key
 //
-// retry indicator (the value 1) -> 1 byte
+// RETRY indicator (the value 1) -> 1 byte
 //
 // scheduledAt int64 -> 8 bytes
 //
@@ -84,7 +84,13 @@ func WriteRetriesOccurenceToLog(w io.Writer, pi *ds.PqItem) bool {
 //
 // after written here, the task is considered committed
 //
-// format -> 2 bytes length of key + key
+// format -> 3 bytes + key
+//
+// COMMIT indicator (the value 2) -> 1 byte
+//
+// length of key int16 -> 2 bytes
+//
+// key string/[]byte
 func WriteCommitMessageToLog(w io.Writer, key []byte) bool {
 	buf := make([]byte, 3)
 
