@@ -2,11 +2,27 @@ package main
 
 import (
 	"encoding/binary"
+	"errors"
 	"io"
 	"io/ioutil"
 	"log"
 
 	"github.com/aarondwi/antri/ds"
+)
+
+var (
+	// ErrFailedParsingContent raises when some error in binary data are found,
+	// meaning corrupted data
+	ErrFailedParsingContent = errors.New("Failed parsing content of log from buffer")
+
+	// ErrRetryNotFound raises when RETRY message found, but no corresponding message
+	ErrRetryNotFound = errors.New("RETRY message without the corresponding message")
+
+	// ErrCommitNotFound raises when COMMIT message found, but no corresponding message
+	ErrCommitNotFound = errors.New("COMMIT message without the corresponding message")
+
+	// ErrUnknownCode raises when corrupted data is found
+	ErrUnknownCode = errors.New("Found unknown indicator code beside NEW, RETRY, or COMMIT")
 )
 
 // WriteNewMessageToLog format PqItem into binary data to write into storage.
@@ -27,7 +43,7 @@ import (
 // key string/[]byte
 //
 // value string/[]byte
-func WriteNewMessageToLog(w io.Writer, pi *ds.PqItem) bool {
+func WriteNewMessageToLog(w io.Writer, pi *ds.PqItem) error {
 	buf := make([]byte, 17)
 
 	buf[0] = 0 // NEW indicator
@@ -40,10 +56,9 @@ func WriteNewMessageToLog(w io.Writer, pi *ds.PqItem) bool {
 
 	_, err := w.Write(buf)
 	if err != nil {
-		log.Printf("failed writing log: %v", err)
-		return false
+		return err
 	}
-	return true
+	return nil
 }
 
 // WriteRetriesOccurenceToLog writes the key and the number of retries
@@ -63,7 +78,7 @@ func WriteNewMessageToLog(w io.Writer, pi *ds.PqItem) bool {
 // length of key int16 -> 2 bytes
 //
 // key string/[]byte
-func WriteRetriesOccurenceToLog(w io.Writer, pi *ds.PqItem) bool {
+func WriteRetriesOccurenceToLog(w io.Writer, pi *ds.PqItem) error {
 	buf := make([]byte, 11)
 
 	buf[0] = 1 // RETRY indicator
@@ -73,11 +88,10 @@ func WriteRetriesOccurenceToLog(w io.Writer, pi *ds.PqItem) bool {
 
 	_, err := w.Write(buf)
 	if err != nil {
-		log.Printf("failed writing log: %v", err)
-		return false
+		return err
 	}
 
-	return true
+	return nil
 }
 
 // WriteCommitMessageToLog writes key that is taken already
@@ -91,7 +105,7 @@ func WriteRetriesOccurenceToLog(w io.Writer, pi *ds.PqItem) bool {
 // length of key int16 -> 2 bytes
 //
 // key string/[]byte
-func WriteCommitMessageToLog(w io.Writer, key []byte) bool {
+func WriteCommitMessageToLog(w io.Writer, key []byte) error {
 	buf := make([]byte, 3)
 
 	buf[0] = 2 // COMMIT indicator
@@ -101,10 +115,9 @@ func WriteCommitMessageToLog(w io.Writer, key []byte) bool {
 
 	_, err := w.Write(buf)
 	if err != nil {
-		log.Printf("failed writing log: %v", err)
-		return false
+		return err
 	}
-	return true
+	return nil
 }
 
 // MsgWrapper wraps msgType with an object of ds.PqItemMsgWrapper
@@ -122,16 +135,19 @@ type MsgWrapper struct {
 
 // ReadLog reads log into a *ds.PqItem.
 // Designed as a method because gonna be using sync.Pool later.
-func ReadLog(r io.Reader) (MsgWrapper, bool) {
+func ReadLog(r io.Reader) (MsgWrapper, error) {
 	indicatorHolder := make([]byte, 1)
 	int16holder := make([]byte, 2)
 	int32holder := make([]byte, 4)
 	int64holder := make([]byte, 8)
 
 	n, err := r.Read(indicatorHolder)
-	if n == 0 || err != nil {
-		log.Printf("failed parsing indicator: %d", n)
-		return MsgWrapper{}, false
+	if err != nil && err != io.EOF {
+		log.Printf("failed parsing indicator: %d, and error %v", n, err)
+		return MsgWrapper{}, ErrFailedParsingContent
+	}
+	if err == io.EOF {
+		return MsgWrapper{}, io.EOF
 	}
 
 	indicator := indicatorHolder[0]
@@ -139,41 +155,41 @@ func ReadLog(r io.Reader) (MsgWrapper, bool) {
 		n, err = r.Read(int64holder)
 		if n == 0 || err != nil {
 			log.Printf("failed parsing scheduledAt: %d", n)
-			return MsgWrapper{}, false
+			return MsgWrapper{}, ErrFailedParsingContent
 		}
 		scheduledAtRead := binary.LittleEndian.Uint64(int64holder)
 
 		n, err = r.Read(int16holder)
 		if n == 0 || err != nil {
 			log.Printf("failed parsing lengthOfKey: %d", n)
-			return MsgWrapper{}, false
+			return MsgWrapper{}, ErrFailedParsingContent
 		}
 		lengthOfKeyRead := binary.LittleEndian.Uint16(int16holder)
 
 		n, err = r.Read(int32holder)
 		if n == 0 || err != nil {
 			log.Printf("failed parsing lengthOfValue: %d", n)
-			return MsgWrapper{}, false
+			return MsgWrapper{}, ErrFailedParsingContent
 		}
 		lengthOfValueRead := binary.LittleEndian.Uint32(int32holder)
 
 		n, err = r.Read(int16holder)
 		if n == 0 || err != nil {
 			log.Printf("failed parsing numOfRetries: %d", n)
-			return MsgWrapper{}, false
+			return MsgWrapper{}, ErrFailedParsingContent
 		}
 		numOfRetriesRead := binary.LittleEndian.Uint16(int16holder)
 
 		keyBytes, err := ioutil.ReadAll(io.LimitReader(r, int64(lengthOfKeyRead)))
 		if err != nil {
 			log.Printf("failed reading key: %v", err)
-			return MsgWrapper{}, false
+			return MsgWrapper{}, ErrFailedParsingContent
 		}
 
 		valueBytes, err := ioutil.ReadAll(io.LimitReader(r, int64(lengthOfValueRead)))
 		if err != nil {
 			log.Printf("failed reading value: %v", err)
-			return MsgWrapper{}, false
+			return MsgWrapper{}, ErrFailedParsingContent
 		}
 
 		return MsgWrapper{
@@ -183,26 +199,26 @@ func ReadLog(r io.Reader) (MsgWrapper, bool) {
 				Key:         string(keyBytes),
 				Value:       string(valueBytes),
 				Retries:     int16(numOfRetriesRead)},
-		}, true
+		}, nil
 	} else if indicator == 1 {
 		n, err = r.Read(int64holder)
 		if n == 0 || err != nil {
 			log.Printf("failed parsing scheduledAt: %d", n)
-			return MsgWrapper{}, false
+			return MsgWrapper{}, ErrFailedParsingContent
 		}
 		scheduledAtRead := binary.LittleEndian.Uint64(int64holder)
 
 		n, err = r.Read(int16holder)
 		if n == 0 || err != nil {
 			log.Printf("failed parsing lengthOfKey: %d", n)
-			return MsgWrapper{}, false
+			return MsgWrapper{}, ErrFailedParsingContent
 		}
 		lengthOfKeyRead := binary.LittleEndian.Uint16(int16holder)
 
 		keyBytes, err := ioutil.ReadAll(io.LimitReader(r, int64(lengthOfKeyRead)))
 		if err != nil {
 			log.Printf("failed reading key: %v", err)
-			return MsgWrapper{}, false
+			return MsgWrapper{}, ErrFailedParsingContent
 		}
 
 		return MsgWrapper{
@@ -210,28 +226,66 @@ func ReadLog(r io.Reader) (MsgWrapper, bool) {
 			item: ds.PqItem{
 				ScheduledAt: int64(scheduledAtRead),
 				Key:         string(keyBytes)},
-		}, true
+		}, nil
 	} else if indicator == 2 {
 		n, err := r.Read(int16holder)
 		if n == 0 || err != nil {
 			log.Printf("failed parsing lengthOfKey: %d -> %v", n, err)
-			return MsgWrapper{}, false
+			return MsgWrapper{}, ErrFailedParsingContent
 		}
 		lengthOfKeyRead := binary.LittleEndian.Uint16(int16holder)
 
 		keyBytes, err := ioutil.ReadAll(io.LimitReader(r, int64(lengthOfKeyRead)))
 		if err != nil {
 			log.Printf("failed reading key: %v", err)
-			return MsgWrapper{}, false
+			return MsgWrapper{}, ErrFailedParsingContent
 		}
 
 		return MsgWrapper{
 			msgType: 2,
 			item: ds.PqItem{
 				Key: string(keyBytes)},
-		}, true
+		}, nil
 	} else {
-		log.Fatalf("Unknown indicator number: %d", indicator)
-		return MsgWrapper{}, false
+		log.Printf("Unknown indicator number: %d", indicator)
+		return MsgWrapper{}, ErrUnknownCode
 	}
+}
+
+// ReadLogMultiple uses ReadLog internally
+// and combine all of them into an array
+func ReadLogMultiple(r io.Reader) ([]*ds.PqItem, error) {
+	itemPlaceholder := []*ds.PqItem{}
+
+	for {
+		placeholder, err := ReadLog(r)
+		if err != nil && err != io.EOF { // mostly EOF, for now
+			return nil, err
+		}
+		if err == io.EOF {
+			break
+		}
+		if placeholder.msgType == 0 {
+			itemPlaceholder = append(itemPlaceholder, &placeholder.item)
+		} else if placeholder.msgType == 1 {
+			pos := indexOfPqItemWithTheGivenKey(itemPlaceholder, placeholder.item.Key)
+			if pos == -1 {
+				log.Printf("Found Key: %s", placeholder.item.Key)
+				return nil, ErrRetryNotFound
+			}
+			itemPlaceholder[pos].Retries++
+		} else if placeholder.msgType == 2 {
+			pos := indexOfPqItemWithTheGivenKey(itemPlaceholder, placeholder.item.Key)
+			if pos == -1 {
+				log.Printf("Found Key: %s", placeholder.item.Key)
+				return nil, ErrCommitNotFound
+			}
+			itemPlaceholder = append(itemPlaceholder[:pos], itemPlaceholder[pos+1:]...)
+		} else {
+			log.Printf("Found unknown message format code : %d", placeholder.msgType)
+			return nil, ErrUnknownCode
+		}
+	}
+
+	return itemPlaceholder, nil
 }
