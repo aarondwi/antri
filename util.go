@@ -25,17 +25,27 @@ func fileSequenceNumberAsString(filename string) string {
 	return filenameSeparated[len(filenameSeparated)-1]
 }
 
-// get all files matching the `word`, until just before the `limit`
-func sortedListOfItemInDirMatchingARegex(files []os.FileInfo, wordToMatch, limit string) []string {
+func sortedListOfFilesInDirMatchingARegex(files []os.FileInfo, wordToMatch string) []string {
 	result := []string{}
 	for _, f := range files {
 		if strings.Contains(f.Name(), wordToMatch) &&
-			!f.IsDir() &&
-			strings.Compare(f.Name(), limit) == -1 {
+			!f.IsDir() {
 			result = append(result, f.Name())
 		}
 	}
 
 	sort.Strings(result)
+	return result
+}
+
+// get all files matching the `word`, until just before the `limit`
+func sortedListOfFilesInDirMatchingARegexUntilALimit(files []os.FileInfo, wordToMatch, limit string) []string {
+	result := []string{}
+	for _, f := range sortedListOfFilesInDirMatchingARegex(files, wordToMatch) {
+		if strings.Compare(f, limit) == -1 {
+			result = append(result, f)
+		}
+	}
+
 	return result
 }

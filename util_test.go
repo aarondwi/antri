@@ -62,7 +62,7 @@ func (mfi *mockFileInfo) Sys() interface{} {
 	return nil
 }
 
-func TestSortedListOfItemInDirMatchingARegex(t *testing.T) {
+func TestSortedListOfFilesInDirMatchingARegex(t *testing.T) {
 	files := []os.FileInfo{}
 
 	// mock all the os.FileInfo data
@@ -86,7 +86,40 @@ func TestSortedListOfItemInDirMatchingARegex(t *testing.T) {
 	files = append(files, &mockFileInfo{name: "data/wal-0000000000000007", isDir: false})
 	files = append(files, &mockFileInfo{name: "data/somethingelse", isDir: false})
 
-	snapshotFiles := sortedListOfItemInDirMatchingARegex(files, "snapshot", "data/snapshot-0000000000000011")
+	walFiles := sortedListOfFilesInDirMatchingARegex(files, "wal")
+	if len(walFiles) != 10 {
+		log.Fatalf("should return 3 wal files, but got: %d", len(walFiles))
+	}
+	if walFiles[len(walFiles)-1] != "data/wal-0000000000000011" {
+		log.Fatalf("walFiles should be sorted ascending, and we got: \n%v", walFiles)
+	}
+}
+
+func TestSortedListOfFilesInDirMatchingARegexUntilALimit(t *testing.T) {
+	files := []os.FileInfo{}
+
+	// mock all the os.FileInfo data
+	files = append(files, &mockFileInfo{name: "data/.cache", isDir: true})
+	files = append(files, &mockFileInfo{name: "data/wal-0000000000000003", isDir: false})
+	files = append(files, &mockFileInfo{name: "data/wal-0000000000000006", isDir: false})
+	files = append(files, &mockFileInfo{name: "data/wal-0000000000000008", isDir: false})
+	files = append(files, &mockFileInfo{name: "data/snapshot-0000000000000001", isDir: false})
+	files = append(files, &mockFileInfo{name: "data/snapshot-0000000000000010", isDir: false})
+	files = append(files, &mockFileInfo{name: "data/placeholder-0000000000000010", isDir: false})
+	files = append(files, &mockFileInfo{name: "data/placeholder", isDir: true})
+	files = append(files, &mockFileInfo{name: "data/wal-0000000000000004", isDir: false})
+	files = append(files, &mockFileInfo{name: "data/wal-0000000000000005", isDir: false})
+	files = append(files, &mockFileInfo{name: "data/.gitignore", isDir: false})
+	files = append(files, &mockFileInfo{name: "data/wal-0000000000000009", isDir: false})
+	files = append(files, &mockFileInfo{name: "data/wal-0000000000000011", isDir: false})
+	files = append(files, &mockFileInfo{name: "data/wal-0000000000000010", isDir: false})
+	files = append(files, &mockFileInfo{name: "data/.dockerignore", isDir: false})
+	files = append(files, &mockFileInfo{name: "data/wal-XXXXX", isDir: true})
+	files = append(files, &mockFileInfo{name: "data/wal-0000000000000002", isDir: false})
+	files = append(files, &mockFileInfo{name: "data/wal-0000000000000007", isDir: false})
+	files = append(files, &mockFileInfo{name: "data/somethingelse", isDir: false})
+
+	snapshotFiles := sortedListOfFilesInDirMatchingARegexUntilALimit(files, "snapshot", "data/snapshot-0000000000000011")
 	if len(snapshotFiles) != 2 {
 		log.Fatalf("should return 2 snapshot files, but got: %d", len(snapshotFiles))
 	}
@@ -94,7 +127,7 @@ func TestSortedListOfItemInDirMatchingARegex(t *testing.T) {
 		log.Fatalf("snapshotFiles should be sorted ascending, and we got: \n%v", snapshotFiles)
 	}
 
-	walFiles := sortedListOfItemInDirMatchingARegex(files, "wal", "data/wal-0000000000000005")
+	walFiles := sortedListOfFilesInDirMatchingARegexUntilALimit(files, "wal", "data/wal-0000000000000005")
 	if len(walFiles) != 3 {
 		log.Fatalf("should return 3 wal files, but got: %d", len(walFiles))
 	}

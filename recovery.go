@@ -23,6 +23,9 @@ var (
 
 	// ErrUnknownCode raises when corrupted data is found
 	ErrUnknownCode = errors.New("Found unknown indicator code beside NEW, RETRY, or COMMIT")
+
+	// ErrSnapshotCorrupted raises when reading snapshot and found other than msgType 0
+	ErrSnapshotCorrupted = errors.New("Found other types other than NEW in the snapshots")
 )
 
 // WriteNewMessageToLog format PqItem into binary data to write into storage.
@@ -259,7 +262,7 @@ func ReadLogMultiple(r io.Reader) ([]*ds.PqItem, error) {
 
 	for {
 		placeholder, err := ReadLog(r)
-		if err != nil && err != io.EOF { // mostly EOF, for now
+		if err != nil && err != io.EOF {
 			return nil, err
 		}
 		if err == io.EOF {
@@ -287,5 +290,25 @@ func ReadLogMultiple(r io.Reader) ([]*ds.PqItem, error) {
 		}
 	}
 
+	return itemPlaceholder, nil
+}
+
+// ReadSnapshotContents reads NEW messages from r
+func ReadSnapshotContents(r io.Reader) ([]*ds.PqItem, error) {
+	itemPlaceholder := []*ds.PqItem{}
+	for {
+		placeholder, err := ReadLog(r)
+		if err != nil && err != io.EOF {
+			return nil, err
+		}
+		if err == io.EOF {
+			break
+		}
+		if placeholder.msgType != 0 {
+			log.Printf("CORRUPTED SNAPSHOT DATA!!!! Found Code : %d", placeholder.msgType)
+			return nil, ErrSnapshotCorrupted
+		}
+		itemPlaceholder = append(itemPlaceholder, &placeholder.item)
+	}
 	return itemPlaceholder, nil
 }

@@ -9,7 +9,7 @@ import (
 	"github.com/aarondwi/antri/ds"
 )
 
-func TestWriteReadMessage(t *testing.T) {
+func TestWriteReadMessageToLog(t *testing.T) {
 	now := time.Now().Unix()
 	buf := new(bytes.Buffer)
 
@@ -135,5 +135,31 @@ func TestReadLogMultipleFailed(t *testing.T) {
 	_, err = ReadLogMultiple(buf)
 	if err == nil {
 		log.Fatalf("should be error, because UNKNOWN code")
+	}
+}
+
+func TestReadSnapshotContents(t *testing.T) {
+	now := time.Now().Unix()
+	item := &ds.PqItem{
+		ScheduledAt: now,
+		Key:         "abc",
+		Value:       "ABC",
+		Retries:     0}
+
+	buf := new(bytes.Buffer)
+	WriteNewMessageToLog(buf, item)
+	result, err := ReadSnapshotContents(buf)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if result[0].Key != "abc" {
+		log.Fatalf("wrong keys found, got %v", result[0])
+	}
+
+	buf = new(bytes.Buffer)
+	WriteRetriesOccurenceToLog(buf, item)
+	result, err = ReadSnapshotContents(buf)
+	if err == nil {
+		log.Fatal("should error because snapshot may only content NEW msgType")
 	}
 }

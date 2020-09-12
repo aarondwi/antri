@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"log"
 	"math/rand"
@@ -117,6 +116,7 @@ func NewAntriServer(maxsize, taskTimeout, checkpointDuration int) (*AntriServer,
 			N: 0},
 		checkpointDuration: checkpointDuration,
 	}
+	// as.recovery()
 	go as.taskTimeoutWatchdog()
 	// go as.snapshotter()
 	return as, nil
@@ -186,8 +186,7 @@ func (as *AntriServer) AddTask(ctx *fasthttp.RequestCtx) {
 	ctx.WriteString(taskKeyStr)
 }
 
-// only hold in-memory
-// the at-least-once guarantee is via log
+// only hold in-memory, the at-least-once guarantee is via log
 func (as *AntriServer) addToInflightStorer(key string, item *ds.PqItem) {
 	as.inflightMutex.Lock()
 	as.inflightRecords.Insert(key, item)
@@ -229,7 +228,7 @@ func (as *AntriServer) getReadyToBeRetrievedMessage() *ds.PqItem {
 }
 
 // RetrieveTask takes a task from in-memory ds
-// and move it to in-memory map
+// and move it to in-memory map.
 // Available via GET method, at /retrieve
 func (as *AntriServer) RetrieveTask(ctx *fasthttp.RequestCtx) {
 	res := as.getReadyToBeRetrievedMessage()
@@ -331,6 +330,13 @@ func (as *AntriServer) RejectTask(ctx *fasthttp.RequestCtx) {
 	ctx.WriteString("OK\n")
 }
 
+// recovers the current state of the MQ from the data directory
+//
+// also updates the counter to match the most recent one
+func (as *AntriServer) recovery() {
+
+}
+
 // snapshotter create snapshot file of current state asynchronously,
 // to speed-up the recovery process.
 //
@@ -370,7 +376,7 @@ func (as *AntriServer) snapshotter() {
 			// this is NOT efficient, and gonna be changed later
 			// because we also need to search them by key (for RETRY AND COMMIT)
 			itemPlaceholder := []*ds.PqItem{}
-			previousCheckpointFiles := sortedListOfItemInDirMatchingARegex(files, "snapshot", newSnapshotFilename)
+			previousCheckpointFiles := sortedListOfFilesInDirMatchingARegexUntilALimit(files, "snapshot", newSnapshotFilename)
 			if len(previousCheckpointFiles) > 0 {
 				// we can open the old snapshot file
 				// but only read the last one
@@ -386,20 +392,14 @@ func (as *AntriServer) snapshotter() {
 				// record lastCheckpointedFilename
 				lastCheckpointedWalFilename = previousCheckpointFiles[len(previousCheckpointFiles)-1]
 
-				for {
-					placeholder, err := ReadLog(lastSnapshotFiles)
-					if err != nil && err != io.EOF { // mostly EOF
-						break
-					}
-					if placeholder.msgType != 0 {
-						log.Fatalf("CORRUPTED SNAPSHOT DATA!!!! Snapshot file may only contain NEW msgType, but found with code : %d",
-							placeholder.msgType)
-					}
-					itemPlaceholder = append(itemPlaceholder, &placeholder.item)
+				r, err := ReadSnapshotContents(lastSnapshotFiles)
+				if err != nil {
+					log.Fatal(err)
 				}
+				itemPlaceholder = append(itemPlaceholder, r...)
 			}
 
-			walFilesToBeCompacted := sortedListOfItemInDirMatchingARegex(files, "wal", currentWalFilename)
+			walFilesToBeCompacted := sortedListOfFilesInDirMatchingARegexUntilALimit(files, "wal", currentWalFilename)
 			sort.Strings(walFilesToBeCompacted)
 			if len(walFilesToBeCompacted) == 0 || (lastCheckpointedWalFilename != "" &&
 				strings.Compare( // need to check if no new files from name too
@@ -456,7 +456,7 @@ func (as *AntriServer) snapshotter() {
 
 			// delete all wals, snapshots, and placeholders until current snapshot
 			// this process is safe, as it only removes until just before the just created checkpoint
-			previousPlaceholderFiles := sortedListOfItemInDirMatchingARegex(files, "snapshot", placeholderFilename)
+			previousPlaceholderFiles := sortedListOfFilesInDirMatchingARegexUntilALimit(files, "placeholder", placeholderFilename)
 			for _, f := range previousPlaceholderFiles {
 				os.Remove(f)
 			}
