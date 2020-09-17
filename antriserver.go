@@ -7,6 +7,7 @@ import (
 	"log"
 	"math/rand"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -21,7 +22,8 @@ import (
 var letterBytes = []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
 var fileFlag = os.O_APPEND | os.O_CREATE | os.O_RDWR | os.O_SYNC
 var fileMode = os.FileMode(0644)
-var walFilenameFormat = "data/wal-%016d"
+var dataDir = "data/"
+var walFilenameFormat = dataDir + "wal-%016d"
 
 func randStringBytes(n int) []byte {
 	b := make([]byte, n)
@@ -86,15 +88,8 @@ func NewAntriServer(maxsize, taskTimeout, checkpointDuration int) (*AntriServer,
 	notEmpty := sync.NewCond(&mutex)
 	notFull := sync.NewCond(&mutex)
 
-	if _, err := os.Stat("data/"); os.IsNotExist(err) {
-		os.Mkdir("data/", fileMode)
-	}
-
-	// access to file
-	addedMutex := sync.Mutex{}
-	addedFile, err := os.OpenFile(fmt.Sprintf(walFilenameFormat, 1), fileFlag, fileMode)
-	if err != nil {
-		log.Fatal(err)
+	if _, err := os.Stat(dataDir); os.IsNotExist(err) {
+		os.Mkdir(dataDir, fileMode)
 	}
 
 	// inflight path
@@ -102,23 +97,39 @@ func NewAntriServer(maxsize, taskTimeout, checkpointDuration int) (*AntriServer,
 	inflightRecords := ds.NewOrderedMap(int64(taskTimeout))
 
 	as := &AntriServer{
-		mutex:           &mutex,
-		notEmpty:        notEmpty,
-		notFull:         notFull,
-		pq:              ds.NewPq(),
-		maxsize:         maxsize,
-		inflightMutex:   &inflightMutex,
-		inflightRecords: inflightRecords,
-		walFile: &wal{
-			M: &addedMutex,
-			F: addedFile,
-			C: 1,
-			N: 0},
+		mutex:              &mutex,
+		notEmpty:           notEmpty,
+		notFull:            notFull,
+		pq:                 ds.NewPq(),
+		maxsize:            maxsize,
+		inflightMutex:      &inflightMutex,
+		inflightRecords:    inflightRecords,
 		checkpointDuration: checkpointDuration,
 	}
-	// as.recovery()
+
+	// start a recovery, to get all the data,
+	// then compute the next counter to be used
+	//
+	// as recovery() returns the last known value,
+	// we inc it by 1 so the file doesnt get corrupted
+	// (basically start clean)
+	startCounter := as.recovery() + 1
+
+	// access to file
+	walMutex := sync.Mutex{}
+	walFile, err := os.OpenFile(fmt.Sprintf(walFilenameFormat, startCounter), fileFlag, fileMode)
+	if err != nil {
+		log.Fatal(err)
+	}
+	as.walFile = &wal{
+		M: &walMutex,
+		F: walFile,
+		C: startCounter,
+		N: 0,
+	}
+
+	go as.snapshotter()
 	go as.taskTimeoutWatchdog()
-	// go as.snapshotter()
 	return as, nil
 }
 
@@ -330,11 +341,118 @@ func (as *AntriServer) RejectTask(ctx *fasthttp.RequestCtx) {
 	ctx.WriteString("OK\n")
 }
 
+type antriServerStats struct {
+	WaitingTask   int `json:"waiting_tasks"`
+	InflightTasks int `json:"inflight_tasks"`
+}
+
+// Stats returns current waiting and inflight tasks
+//
+// Neither the reading is atomic, nor is a linearizable operations
+func (as *AntriServer) Stats(ctx *fasthttp.RequestCtx) {
+	waitingTask := as.pq.HeapSize()
+	inflightTasks := as.inflightRecords.Length()
+	byteArray, _ := json.Marshal(antriServerStats{
+		WaitingTask:   waitingTask,
+		InflightTasks: inflightTasks,
+	})
+	ctx.Write(byteArray)
+}
+
+func (as *AntriServer) batchInsertIntoInMemoryDS(items []*ds.PqItem) {
+	as.mutex.Lock()
+	for _, item := range items {
+		as.pq.Insert(item)
+	}
+	as.mutex.Unlock()
+}
+
 // recovers the current state of the MQ from the data directory
 //
-// also updates the counter to match the most recent one
-func (as *AntriServer) recovery() {
+// also returns the last known counter value
+func (as *AntriServer) recovery() int {
+	files, err := ioutil.ReadDir(dataDir)
+	if err != nil {
+		log.Fatalf("Failed reading directory for snapshotting: %v", err)
+	}
 
+	lastKnownCounter := 0
+	lastSnapshotFilename := ""
+	itemPlaceholder := []*ds.PqItem{}
+	checkpointFiles := sortedListOfFilesInDirMatchingARegex(files, "snapshot")
+	if len(checkpointFiles) > 0 {
+		lastSnapshotFilename = checkpointFiles[len(checkpointFiles)-1]
+		lastKnownCounter, err = fileSequenceNumber(lastSnapshotFilename)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		// we can open the old snapshot file
+		// but only read the last one
+		// all other files are just undeleted files
+		lastSnapshotFile, err := os.OpenFile(
+			dataDir+lastSnapshotFilename, os.O_RDONLY, fileMode)
+		if err != nil {
+			log.Fatalf("Failed reading last snapshot file, which is `%s` with error %v",
+				lastSnapshotFilename, err)
+		}
+		defer lastSnapshotFile.Close()
+
+		r, err := ReadSnapshotContents(lastSnapshotFile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		itemPlaceholder = append(itemPlaceholder, r...)
+	}
+
+	walFilesToRecovered := sortedListOfFilesInDirMatchingARegex(files, "wal")
+	sort.Strings(walFilesToRecovered)
+	if len(walFilesToRecovered) == 0 || (lastSnapshotFilename != "" &&
+		strings.Compare( // need to check if no new files from name too
+			fileSequenceNumberAsString(walFilesToRecovered[len(walFilesToRecovered)-1]),
+			fileSequenceNumberAsString(lastSnapshotFilename)) <= 0) {
+		as.batchInsertIntoInMemoryDS(itemPlaceholder)
+		log.Printf("No wal files to be recovered, skipping ...")
+		return lastKnownCounter
+	}
+
+	for _, f := range walFilesToRecovered {
+		// only process those that has not yet been included to the previous snapshot
+		// to guarantee exactly once internally
+		if lastSnapshotFilename != "" && strings.Compare(
+			fileSequenceNumberAsString(f),
+			fileSequenceNumberAsString(lastSnapshotFilename)) <= 0 {
+			continue
+		}
+
+		walFileCounter, err := fileSequenceNumber(f)
+		if err != nil {
+			log.Fatal(err)
+		}
+		lastKnownCounter = walFileCounter
+
+		walFile, err := os.OpenFile(dataDir+f, os.O_RDONLY, fileMode)
+		if err != nil {
+			log.Fatalf("Failed reading wal file, which is `%s` with error %v", f, err)
+		}
+		defer walFile.Close()
+
+		log.Printf("Reading %s...", walFile.Name())
+		itemPlaceholder, err = ReadLogMultiple(walFile, itemPlaceholder)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+
+	as.batchInsertIntoInMemoryDS(itemPlaceholder)
+
+	// put all to pool
+	// to reduce the need to allocate memory later
+	for _, item := range itemPlaceholder {
+		pqItemPool.Put(item)
+	}
+
+	return lastKnownCounter
 }
 
 // snapshotter create snapshot file of current state asynchronously,
@@ -352,11 +470,11 @@ func (as *AntriServer) snapshotter() {
 		select {
 		case <-ticker.C:
 			as.walFile.M.Lock()
-			currentWalFilename := as.walFile.F.Name()
+			currentWalFilename := filepath.Base(as.walFile.F.Name())
 			currentWalCounter := as.walFile.C
 			as.walFile.M.Unlock()
 
-			files, err := ioutil.ReadDir("data/")
+			files, err := ioutil.ReadDir(dataDir)
 			if err != nil {
 				log.Fatalf("Failed reading directory for snapshotting: %v", err)
 			}
@@ -368,49 +486,51 @@ func (as *AntriServer) snapshotter() {
 			// we don't directly writes into snapshot file
 			// cause it may crashes in the middle (not atomic for writing more than 1 page)
 			// instead, we will atomically rename the file into snapshot after all done
-			lastCheckpointedWalFilename := ""
-			newSnapshotFilename := fmt.Sprintf("data/snapshot-%016d", currentWalCounter-1)
-			placeholderFilename := fmt.Sprintf("data/placeholder-%016d", currentWalCounter-1)
+			lastSnapshotFilename := ""
+
+			// do snapshot until just the last file before current number
+			newSnapshotFilename := fmt.Sprintf("snapshot-%016d", currentWalCounter-1)
+			placeholderFilename := fmt.Sprintf("placeholder-%016d", currentWalCounter-1)
 
 			// for now, use a slice
 			// this is NOT efficient, and gonna be changed later
 			// because we also need to search them by key (for RETRY AND COMMIT)
 			itemPlaceholder := []*ds.PqItem{}
-			previousCheckpointFiles := sortedListOfFilesInDirMatchingARegexUntilALimit(files, "snapshot", newSnapshotFilename)
-			if len(previousCheckpointFiles) > 0 {
+			snapshotFiles := sortedListOfFilesInDirMatchingARegexUntilALimit(files, "snapshot", newSnapshotFilename)
+			if len(snapshotFiles) > 0 {
 				// we can open the old snapshot file
 				// but only read the last one
 				// all other files are just undeleted files
-				lastSnapshotFiles, err := os.OpenFile(
-					previousCheckpointFiles[len(previousCheckpointFiles)-1], os.O_RDONLY, fileMode)
+				lastSnapshotFile, err := os.OpenFile(
+					dataDir+snapshotFiles[len(snapshotFiles)-1], os.O_RDONLY, fileMode)
 				if err != nil {
 					log.Fatalf("Failed reading last snapshot file, which is `%s` with error %v",
-						previousCheckpointFiles[len(previousCheckpointFiles)-1], err)
+						snapshotFiles[len(snapshotFiles)-1], err)
 				}
-				defer lastSnapshotFiles.Close()
 
 				// record lastCheckpointedFilename
-				lastCheckpointedWalFilename = previousCheckpointFiles[len(previousCheckpointFiles)-1]
+				lastSnapshotFilename = snapshotFiles[len(snapshotFiles)-1]
 
-				r, err := ReadSnapshotContents(lastSnapshotFiles)
+				r, err := ReadSnapshotContents(lastSnapshotFile)
 				if err != nil {
 					log.Fatal(err)
 				}
 				itemPlaceholder = append(itemPlaceholder, r...)
+				lastSnapshotFile.Close()
 			}
 
 			walFilesToBeCompacted := sortedListOfFilesInDirMatchingARegexUntilALimit(files, "wal", currentWalFilename)
 			sort.Strings(walFilesToBeCompacted)
-			if len(walFilesToBeCompacted) == 0 || (lastCheckpointedWalFilename != "" &&
+			if len(walFilesToBeCompacted) == 0 || (lastSnapshotFilename != "" &&
 				strings.Compare( // need to check if no new files from name too
 					fileSequenceNumberAsString(walFilesToBeCompacted[len(walFilesToBeCompacted)-1]),
-					fileSequenceNumberAsString(lastCheckpointedWalFilename)) <= 0) {
+					fileSequenceNumberAsString(lastSnapshotFilename)) <= 0) {
 				log.Printf("No new files, skipping ...")
 				continue
 			}
 
 			snapshotPlaceholderFile, err := os.OpenFile(
-				placeholderFilename,
+				dataDir+placeholderFilename,
 				os.O_APPEND|os.O_CREATE|os.O_WRONLY, fileMode)
 			if err != nil {
 				log.Fatalf("Failed creating placeholder file for snapshotting, with error: %v", err)
@@ -420,23 +540,23 @@ func (as *AntriServer) snapshotter() {
 			for _, f := range walFilesToBeCompacted {
 				// only process those that has not yet been included to the previous snapshot
 				// to guarantee exactly once internally
-				if lastCheckpointedWalFilename != "" && strings.Compare(
-					fileSequenceNumberAsString(walFilesToBeCompacted[len(walFilesToBeCompacted)-1]),
-					fileSequenceNumberAsString(lastCheckpointedWalFilename)) <= 0 {
+				if lastSnapshotFilename != "" && strings.Compare(
+					fileSequenceNumberAsString(f),
+					fileSequenceNumberAsString(lastSnapshotFilename)) <= 0 {
 					continue
 				}
 
-				walFile, err := os.OpenFile(f, os.O_RDONLY, fileMode)
+				walFile, err := os.OpenFile(dataDir+f, os.O_RDONLY, fileMode)
 				if err != nil {
 					log.Fatalf("Failed reading wal file, which is `%s` with error %v", f, err)
 				}
-				defer walFile.Close()
 
-				itemsFromThisWalfile, err := ReadLogMultiple(walFile)
+				log.Printf("Reading %s...", walFile.Name())
+				itemPlaceholder, err = ReadLogMultiple(walFile, itemPlaceholder)
 				if err != nil {
 					log.Fatal(err)
 				}
-				itemPlaceholder = append(itemPlaceholder, itemsFromThisWalfile...)
+				walFile.Close()
 			}
 
 			for _, item := range itemPlaceholder {
@@ -446,25 +566,33 @@ func (as *AntriServer) snapshotter() {
 			if err != nil {
 				log.Fatalf("Failed fsync snapshot, with error: %v", err)
 			}
+			snapshotPlaceholderFile.Close()
 
 			// after this rename, snapshotting is considered done (COMMITTED)
-			err = os.Rename(placeholderFilename, newSnapshotFilename)
+			err = os.Rename(
+				dataDir+placeholderFilename,
+				dataDir+newSnapshotFilename)
 			if err != nil {
 				log.Fatalf("Failed renaming into snapshot file, with error: %v", err)
 			}
 			log.Printf("Snapshotting finished at %d", time.Now().Unix())
 
+			// put all to pool, to reduce the need to allocate memory
+			for _, item := range itemPlaceholder {
+				pqItemPool.Put(item)
+			}
+
 			// delete all wals, snapshots, and placeholders until current snapshot
 			// this process is safe, as it only removes until just before the just created checkpoint
-			previousPlaceholderFiles := sortedListOfFilesInDirMatchingARegexUntilALimit(files, "placeholder", placeholderFilename)
+			previousPlaceholderFiles := sortedListOfFilesInDirMatchingARegex(files, "placeholder")
 			for _, f := range previousPlaceholderFiles {
-				os.Remove(f)
+				os.Remove(dataDir + f)
 			}
-			for _, f := range previousCheckpointFiles {
-				os.Remove(f)
+			for _, f := range snapshotFiles {
+				os.Remove(dataDir + f)
 			}
 			for _, f := range walFilesToBeCompacted {
-				os.Remove(f)
+				os.Remove(dataDir + f)
 			}
 		default:
 		}
@@ -523,6 +651,7 @@ func NewAntriServerRouter(as *AntriServer) *router.Router {
 	r.GET("/retrieve", as.RetrieveTask)
 	r.POST("/{taskKey}/commit", as.CommitTask)
 	r.POST("/{taskKey}/reject", as.RejectTask)
+	r.GET("/stat", as.Stats)
 
 	return r
 }

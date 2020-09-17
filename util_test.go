@@ -18,6 +18,21 @@ func TestFileSequenceNumberAsString(t *testing.T) {
 	}
 }
 
+func TestFileSequenceNumber(t *testing.T) {
+	result, err := fileSequenceNumber("0000000000000015")
+	if err != nil {
+		log.Fatal(err)
+	}
+	if result != 15 {
+		log.Fatalf("it should return the sequence number (after `-`), but got %d", result)
+	}
+
+	_, err = fileSequenceNumber("notanumber0000000000000015")
+	if err == nil {
+		log.Fatalf("should fail, because not a number, but it is not")
+	}
+}
+
 func TestIndexOfPqItemWithTheGivenKey(t *testing.T) {
 	arr := []*ds.PqItem{}
 	arr = append(arr, &ds.PqItem{Key: "abc"})

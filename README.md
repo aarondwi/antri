@@ -73,20 +73,37 @@ Task Key not found
 
 If you commit the task and returns OK, the task key is also synced to disk to ensure durability, and it will not be returned again
 
+You can check a simple stats of current number of waiting task (as `waiting_tasks`), and current number of retrieved but no yet commit/returned to main queue (as `inflight_tasks`)
+
+```shell
+curl http://127.0.0.1:8080/stat
+```
+
+This will return
+
+```json
+{
+    "waiting_tasks":1,
+    "inflight_tasks":0
+}
+```
+
 Features
 -------------------------------------------------------
 
 1. using http as protocol (fasthttp) -> pull model (easy to create client api)
 2. individual commit/reject
-3. durability/at least once delivery (with task timeout)
+3. at least once delivery (with task timeout)
 4. task scheduling/visibility, e.g. how many seconds from commit before the task can be retrieved
+5. durability (via wal, and periodic snapshotting)
 
 To Do:
 ------------------------------------------------------
 
-1. snapshot, for recovery -> following redis/LSM-tree model (rolling log already implemented)
-2. optional cluster (raft / lock-service based)
-3. optional dead letter queue
+1. replication (raft / lock-service based)
+2. more robust testing suite, especially for background process
+3. Tunable wal file
+4. optional dead letter queue
 
 Notes
 ------------------------------------------------------

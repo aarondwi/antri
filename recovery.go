@@ -257,9 +257,7 @@ func ReadLog(r io.Reader) (MsgWrapper, error) {
 
 // ReadLogMultiple uses ReadLog internally
 // and combine all of them into an array
-func ReadLogMultiple(r io.Reader) ([]*ds.PqItem, error) {
-	itemPlaceholder := []*ds.PqItem{}
-
+func ReadLogMultiple(r io.Reader, itemPlaceholder []*ds.PqItem) ([]*ds.PqItem, error) {
 	for {
 		placeholder, err := ReadLog(r)
 		if err != nil && err != io.EOF {

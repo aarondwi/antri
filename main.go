@@ -13,7 +13,7 @@ func main() {
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 
-	as, _ := NewAntriServer(1_000_000, 30, 120)
+	as, _ := NewAntriServer(1_000_000, 30, 300)
 	server := fasthttp.Server{
 		Handler:     NewAntriServerRouter(as).Handler,
 		Concurrency: 256,

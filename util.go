@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/aarondwi/antri/ds"
@@ -23,6 +24,14 @@ func indexOfPqItemWithTheGivenKey(itemPlaceholder []*ds.PqItem, key string) int 
 func fileSequenceNumberAsString(filename string) string {
 	filenameSeparated := strings.Split(filename, "-")
 	return filenameSeparated[len(filenameSeparated)-1]
+}
+
+func fileSequenceNumber(filename string) (int, error) {
+	res, err := strconv.Atoi(fileSequenceNumberAsString(filename))
+	if err != nil {
+		return 0, err
+	}
+	return res, nil
 }
 
 func sortedListOfFilesInDirMatchingARegex(files []os.FileInfo, wordToMatch string) []string {

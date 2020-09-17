@@ -91,7 +91,8 @@ func TestReadLogMultipleSuccess(t *testing.T) {
 	WriteRetriesOccurenceToLog(buf, items[0])
 	WriteCommitMessageToLog(buf, []byte(items[1].Key))
 
-	itemPlaceholder, err := ReadLogMultiple(buf)
+	itemPlaceholder := []*ds.PqItem{}
+	itemPlaceholder, err := ReadLogMultiple(buf, itemPlaceholder)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -111,10 +112,11 @@ func TestReadLogMultipleFailed(t *testing.T) {
 		Value:       "ABC",
 		Retries:     0}
 
+	itemPlaceholder := []*ds.PqItem{}
 	// RETRY path
 	buf := new(bytes.Buffer)
 	WriteRetriesOccurenceToLog(buf, item)
-	_, err := ReadLogMultiple(buf)
+	_, err := ReadLogMultiple(buf, itemPlaceholder)
 	if err == nil {
 		log.Fatalf("should be error, because RETRY without NEW message")
 	}
@@ -122,7 +124,7 @@ func TestReadLogMultipleFailed(t *testing.T) {
 	// COMMIT PATH
 	buf = new(bytes.Buffer)
 	WriteCommitMessageToLog(buf, []byte(item.Key))
-	_, err = ReadLogMultiple(buf)
+	_, err = ReadLogMultiple(buf, itemPlaceholder)
 	if err == nil {
 		log.Fatalf("should be error, because COMMIT without NEW message")
 	}
@@ -132,7 +134,7 @@ func TestReadLogMultipleFailed(t *testing.T) {
 	ErrBuffer[0] = 10
 	buf = new(bytes.Buffer)
 	_, _ = buf.Write(ErrBuffer)
-	_, err = ReadLogMultiple(buf)
+	_, err = ReadLogMultiple(buf, itemPlaceholder)
 	if err == nil {
 		log.Fatalf("should be error, because UNKNOWN code")
 	}
