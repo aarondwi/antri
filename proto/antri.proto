@@ -1,0 +1,34 @@
+syntax = 'proto3';
+
+option go_package = ".;proto";
+
+message AddTasksRequest {
+  repeated bytes contents = 1;
+}
+
+message CommitTasksRequest {
+  repeated bytes keys = 1;
+}
+
+message OkResponse {
+  bool result = 1;
+}
+
+message GetTasksRequest {
+  int32 n = 1;
+}
+
+message GetTasksResponse {
+  message Task {
+    bytes key = 1;
+    bytes content = 2;
+  }
+  repeated Task tasks = 1;
+}
+
+service Antri {
+  rpc AddTasks (AddTasksRequest) returns (OkResponse);
+  rpc GetTasks (GetTasksRequest) returns (GetTasksResponse);
+  rpc AddTask (CommitTasksRequest) returns (OkResponse);
+}
+

@@ -142,7 +142,7 @@ Notes
 Possible optimization
 ------------------------------------------------------------------------
 
-1. batch file write using fsync (based on time and/or number)
+1. implement group fsync (based on time and/or number)
 
     * currently using os.O_SYNC flag (so synced on every write), but on windows (as of august 2020), the official golang compiler does not map O_SYNC to windows equivalent, so it is currently unsafe (but fast) on windows.
 
@@ -152,6 +152,6 @@ Possible optimization
     * try simple array as internal DS + a b-tree/skiplist for index order, to reduce the number of swapping (also removes all usage of orderedmap)
     * Use multiple internal queue (but because pull-model, comes problem to decide how to get from those)
 
-3. use batching on internal api, e.g. on re-put dead task to wal and queue
+3. use batching on internal api, e.g. on re-put dead task to wal and queue -> also allow atomic publish
 
 4. allow all API to use batching, to reduce network round trip
