@@ -180,7 +180,7 @@ func (as *AntriServer) addNewMessageToInMemoryDS(items []*ds.PqItem) {
 	as.notEmpty.Signal()
 }
 
-var success = &proto.OkResponse{Result: true}
+var addTasksSuccess = &proto.AddTasksResponse{Result: true}
 
 // ErrContentShouldNotBeEmpty is returned when
 // at least one of proto.AddTasksRequest contents is null
@@ -190,7 +190,7 @@ var ErrContentShouldNotBeEmpty = errors.New("Content of tasks should be provided
 // and add it to in-memory ds
 func (as *AntriServer) AddTasks(
 	ctx context.Context,
-	in *proto.AddTasksRequest) (*proto.OkResponse, error) {
+	in *proto.AddTasksRequest) (*proto.AddTasksResponse, error) {
 
 	for _, t := range in.Tasks {
 		if len(t.Content) == 0 {
@@ -211,7 +211,7 @@ func (as *AntriServer) AddTasks(
 	as.writeNewMessageToWal(newTasks)
 	as.addNewMessageToInMemoryDS(newTasks)
 
-	return success, nil
+	return addTasksSuccess, nil
 }
 
 // only hold in-memory, the at-least-once guarantee is via log
@@ -301,33 +301,33 @@ func (as *AntriServer) writeCommitKeyToWal(keys []string) {
 	as.walFile.M.Unlock()
 }
 
-// CommitTasks checks if the given keys are inflight
-// if found, it removes the key from the inflightRecords
+// CommitTasks checks if the given keys are inflight.
+// If found, it removes the key from the inflightRecords
 //
 // As it is batched, we don't want to fail all keys when only one fail.
-// As tradeoff, this will not return error, but will happily continue
+// As tradeoff, this will not return error, but will happily continue,
+// only for those keys that are found
 func (as *AntriServer) CommitTasks(
 	ctx context.Context,
-	in *proto.CommitTasksRequest) (*proto.OkResponse, error) {
+	in *proto.CommitTasksRequest) (*proto.CommitTasksResponse, error) {
 
-	keys := make([]string, 0, len(in.Keys))
-	for _, key := range in.Keys {
-		keys = append(keys, key)
-	}
-
+	committedKeys := make([]string, 0, len(in.Keys))
 	as.inflightMutex.Lock()
-	for _, key := range keys {
+	for _, key := range in.Keys {
 		item, ok := as.inflightRecords.Get(key)
 		if ok {
+			committedKeys = append(committedKeys, key)
 			// put first, so can be reused directly
 			pqItemPool.Put(item)
 		}
 	}
 	as.inflightMutex.Unlock()
 
-	as.writeCommitKeyToWal(keys)
+	as.writeCommitKeyToWal(committedKeys)
 
-	return success, nil
+	return &proto.CommitTasksResponse{
+		Keys: committedKeys,
+	}, nil
 }
 
 func (as *AntriServer) writeRetryOccurenceToWal(items []*ds.PqItem) {

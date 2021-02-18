@@ -102,8 +102,9 @@ func TestAddRetrieveCommitMultipleTask(t *testing.T) {
 	if err != nil {
 		log.Fatalf("CommitTasks should not return an error, but we got: %v", err)
 	}
-	if !commitResult.Result {
-		log.Fatal("commitResult resp.Result should be `true`, even with non-existent key, but it is not")
+	if len(commitResult.Keys) != 2 {
+		log.Fatalf("commitResult resp.Result should be 2, as 1 of them is non-existent, but instead we got %d",
+			len(commitResult.Keys))
 	}
 
 	as.Close()
@@ -165,8 +166,9 @@ func TestAddRetrieveTimeoutReretrieveCommit(t *testing.T) {
 	commitResult, err := c.CommitTasks(context.Background(), &proto.CommitTasksRequest{
 		Keys: keysToCommit,
 	})
-	if !commitResult.Result {
-		log.Fatal("commitResult resp.Result should be `true`, but it is not")
+	if len(commitResult.Keys) != 1 {
+		log.Fatalf("commitResult resp.Result should be 1, but instead we got %d",
+			len(commitResult.Keys))
 	}
 
 	as.Close()

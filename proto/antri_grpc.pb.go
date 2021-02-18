@@ -18,9 +18,9 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type AntriClient interface {
-	AddTasks(ctx context.Context, in *AddTasksRequest, opts ...grpc.CallOption) (*OkResponse, error)
+	AddTasks(ctx context.Context, in *AddTasksRequest, opts ...grpc.CallOption) (*AddTasksResponse, error)
 	GetTasks(ctx context.Context, in *GetTasksRequest, opts ...grpc.CallOption) (*GetTasksResponse, error)
-	CommitTasks(ctx context.Context, in *CommitTasksRequest, opts ...grpc.CallOption) (*OkResponse, error)
+	CommitTasks(ctx context.Context, in *CommitTasksRequest, opts ...grpc.CallOption) (*CommitTasksResponse, error)
 }
 
 type antriClient struct {
@@ -31,8 +31,8 @@ func NewAntriClient(cc grpc.ClientConnInterface) AntriClient {
 	return &antriClient{cc}
 }
 
-func (c *antriClient) AddTasks(ctx context.Context, in *AddTasksRequest, opts ...grpc.CallOption) (*OkResponse, error) {
-	out := new(OkResponse)
+func (c *antriClient) AddTasks(ctx context.Context, in *AddTasksRequest, opts ...grpc.CallOption) (*AddTasksResponse, error) {
+	out := new(AddTasksResponse)
 	err := c.cc.Invoke(ctx, "/Antri/AddTasks", in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -49,8 +49,8 @@ func (c *antriClient) GetTasks(ctx context.Context, in *GetTasksRequest, opts ..
 	return out, nil
 }
 
-func (c *antriClient) CommitTasks(ctx context.Context, in *CommitTasksRequest, opts ...grpc.CallOption) (*OkResponse, error) {
-	out := new(OkResponse)
+func (c *antriClient) CommitTasks(ctx context.Context, in *CommitTasksRequest, opts ...grpc.CallOption) (*CommitTasksResponse, error) {
+	out := new(CommitTasksResponse)
 	err := c.cc.Invoke(ctx, "/Antri/CommitTasks", in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -62,9 +62,9 @@ func (c *antriClient) CommitTasks(ctx context.Context, in *CommitTasksRequest, o
 // All implementations must embed UnimplementedAntriServer
 // for forward compatibility
 type AntriServer interface {
-	AddTasks(context.Context, *AddTasksRequest) (*OkResponse, error)
+	AddTasks(context.Context, *AddTasksRequest) (*AddTasksResponse, error)
 	GetTasks(context.Context, *GetTasksRequest) (*GetTasksResponse, error)
-	CommitTasks(context.Context, *CommitTasksRequest) (*OkResponse, error)
+	CommitTasks(context.Context, *CommitTasksRequest) (*CommitTasksResponse, error)
 	mustEmbedUnimplementedAntriServer()
 }
 
@@ -72,13 +72,13 @@ type AntriServer interface {
 type UnimplementedAntriServer struct {
 }
 
-func (UnimplementedAntriServer) AddTasks(context.Context, *AddTasksRequest) (*OkResponse, error) {
+func (UnimplementedAntriServer) AddTasks(context.Context, *AddTasksRequest) (*AddTasksResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AddTasks not implemented")
 }
 func (UnimplementedAntriServer) GetTasks(context.Context, *GetTasksRequest) (*GetTasksResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetTasks not implemented")
 }
-func (UnimplementedAntriServer) CommitTasks(context.Context, *CommitTasksRequest) (*OkResponse, error) {
+func (UnimplementedAntriServer) CommitTasks(context.Context, *CommitTasksRequest) (*CommitTasksResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CommitTasks not implemented")
 }
 func (UnimplementedAntriServer) mustEmbedUnimplementedAntriServer() {}

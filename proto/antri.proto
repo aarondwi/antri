@@ -11,12 +11,16 @@ message AddTasksRequest {
   repeated NewTask tasks = 1;
 }
 
+message AddTasksResponse {
+  bool result = 1;
+}
+
 message CommitTasksRequest {
   repeated string keys = 1;
 }
 
-message OkResponse {
-  bool result = 1;
+message CommitTasksResponse {
+  repeated string keys = 1;
 }
 
 message GetTasksRequest {
@@ -33,8 +37,8 @@ message GetTasksResponse {
 }
 
 service Antri {
-  rpc AddTasks (AddTasksRequest) returns (OkResponse);
+  rpc AddTasks (AddTasksRequest) returns (AddTasksResponse);
   rpc GetTasks (GetTasksRequest) returns (GetTasksResponse);
-  rpc CommitTasks (CommitTasksRequest) returns (OkResponse);
+  rpc CommitTasks (CommitTasksRequest) returns (CommitTasksResponse);
 }
 
