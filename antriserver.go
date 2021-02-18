@@ -51,7 +51,6 @@ type AntriServer struct {
 	mutex    *sync.Mutex
 	notEmpty *sync.Cond
 	pq       *ds.Pq
-	maxsize  int
 
 	// not using sync.Map or equivalent
 	// cause we also want to update the stats
@@ -75,15 +74,10 @@ type AntriServer struct {
 // New initiate the AntriServer with all needed params.
 // So far:
 //
-// 1. maxsize to prevent OOM error (you can count the number of bytes needed for your data)
+// 1. taskTimeout is how long before a retrieved task by a worker considered failed, and should be resent
 //
-// 2. taskTimeout is how long before a retrieved task by a worker considered failed, and should be resent
-//
-// 3. checkpointDuration is how often antri does its asynchronous snapshotting
-func New(maxsize, taskTimeout, checkpointDuration int) (*AntriServer, error) {
-	if maxsize <= 0 {
-		return nil, fmt.Errorf("maxsize should be positive, received %d", maxsize)
-	}
+// 2. checkpointDuration is how often antri does its asynchronous snapshotting
+func New(taskTimeout, checkpointDuration int) (*AntriServer, error) {
 	if taskTimeout <= 0 {
 		return nil, fmt.Errorf("taskTimeout should be positive, received %d", taskTimeout)
 	}
@@ -108,7 +102,6 @@ func New(maxsize, taskTimeout, checkpointDuration int) (*AntriServer, error) {
 		mutex:              &mutex,
 		notEmpty:           notEmpty,
 		pq:                 ds.NewPq(),
-		maxsize:            maxsize,
 		inflightMutex:      &inflightMutex,
 		inflightRecords:    inflightRecords,
 		checkpointDuration: checkpointDuration,

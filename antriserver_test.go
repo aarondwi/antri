@@ -16,17 +16,12 @@ import (
 var addr = "127.0.0.1:3000"
 
 func TestAntriServerParameter(t *testing.T) {
-	_, err := New(0, 1, 1)
-	if err == nil {
-		log.Fatalf("maxsize should be positive, but it is not returning an error")
-	}
-
-	_, err = New(1, -1, 1)
+	_, err := New(-1, 1)
 	if err == nil {
 		log.Fatalf("taskTimeout negative value should be error, but it is not")
 	}
 
-	_, err = New(1, 1, -1)
+	_, err = New(1, -1)
 	if err == nil {
 		log.Fatalf("checkpointDuration negative value should be error, but it is not")
 	}
@@ -38,7 +33,7 @@ func TestAddRetrieveCommitMultipleTask(t *testing.T) {
 		log.Fatal(err)
 	}
 
-	as, err := New(10_000, 1, 1)
+	as, err := New(1, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +116,7 @@ func TestAddRetrieveTimeoutReretrieveCommit(t *testing.T) {
 		log.Fatal(err)
 	}
 
-	as, err := New(10_000, 1, 1)
+	as, err := New(1, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,7 +179,7 @@ func TestValueNotProvided(t *testing.T) {
 		log.Fatal(err)
 	}
 
-	as, err := New(10_000, 1, 1)
+	as, err := New(1, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +215,7 @@ func TestLockWaitFlow(t *testing.T) {
 		log.Fatal(err)
 	}
 
-	as, err := New(10_000, 1, 1)
+	as, err := New(1, 1)
 	if err != nil {
 		t.Fatal(err)
 	}

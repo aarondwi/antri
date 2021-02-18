@@ -12,7 +12,7 @@ func main() {
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 
-	as, _ := New(1_000_000, 30, 300)
+	as, _ := New(30, 300)
 
 	wg := sync.WaitGroup{}
 	wg.Add(1)
