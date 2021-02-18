@@ -16,7 +16,7 @@ func TestWriteReadMessageToLog(t *testing.T) {
 	src := &ds.PqItem{
 		ScheduledAt: now,
 		Key:         "ありがとう ございます",
-		Value:       "ど いたしまして",
+		Value:       []byte("ど いたしまして"),
 		Retries:     7}
 
 	err := WriteNewMessageToLog(buf, src)
@@ -39,7 +39,7 @@ func TestWriteReadMessageToLog(t *testing.T) {
 	}
 	if src.ScheduledAt != dst.item.ScheduledAt ||
 		src.Key != dst.item.Key ||
-		src.Value != dst.item.Value ||
+		!bytes.Equal(src.Value, dst.item.Value) ||
 		src.Retries != dst.item.Retries {
 		log.Fatalf("Corrupted NEW message, expected %v, got %v", src, dst.item)
 	}
@@ -72,17 +72,17 @@ func TestReadLogMultipleSuccess(t *testing.T) {
 	items = append(items, &ds.PqItem{
 		ScheduledAt: now,
 		Key:         "abc",
-		Value:       "ABC",
+		Value:       []byte("ABC"),
 		Retries:     0})
 	items = append(items, &ds.PqItem{
 		ScheduledAt: now,
 		Key:         "def",
-		Value:       "DEF",
+		Value:       []byte("DEF"),
 		Retries:     0})
 	items = append(items, &ds.PqItem{
 		ScheduledAt: now,
 		Key:         "ghi",
-		Value:       "GHI",
+		Value:       []byte("GHI"),
 		Retries:     0})
 	WriteNewMessageToLog(buf, items[0])
 	WriteNewMessageToLog(buf, items[1])
@@ -109,7 +109,7 @@ func TestReadLogMultipleFailed(t *testing.T) {
 	item := &ds.PqItem{
 		ScheduledAt: now,
 		Key:         "abc",
-		Value:       "ABC",
+		Value:       []byte("ABC"),
 		Retries:     0}
 
 	itemPlaceholder := []*ds.PqItem{}
@@ -145,7 +145,7 @@ func TestReadSnapshotContents(t *testing.T) {
 	item := &ds.PqItem{
 		ScheduledAt: now,
 		Key:         "abc",
-		Value:       "ABC",
+		Value:       []byte("ABC"),
 		Retries:     0}
 
 	buf := new(bytes.Buffer)

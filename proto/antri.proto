@@ -2,12 +2,17 @@ syntax = 'proto3';
 
 option go_package = ".;proto";
 
+message NewTask {
+  bytes content = 1;
+  uint32 secondsFromNow = 2;
+}
+
 message AddTasksRequest {
-  repeated bytes contents = 1;
+  repeated NewTask tasks = 1;
 }
 
 message CommitTasksRequest {
-  repeated bytes keys = 1;
+  repeated string keys = 1;
 }
 
 message OkResponse {
@@ -15,20 +20,21 @@ message OkResponse {
 }
 
 message GetTasksRequest {
-  int32 n = 1;
+  uint32 maxN = 1;
+}
+
+message RetrievedTask {
+  string key = 1;
+  bytes content = 2;
 }
 
 message GetTasksResponse {
-  message Task {
-    bytes key = 1;
-    bytes content = 2;
-  }
-  repeated Task tasks = 1;
+  repeated RetrievedTask tasks = 1;
 }
 
 service Antri {
   rpc AddTasks (AddTasksRequest) returns (OkResponse);
   rpc GetTasks (GetTasksRequest) returns (GetTasksResponse);
-  rpc AddTask (CommitTasksRequest) returns (OkResponse);
+  rpc CommitTasks (CommitTasksRequest) returns (OkResponse);
 }
 

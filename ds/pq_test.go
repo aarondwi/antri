@@ -1,6 +1,7 @@
 package ds
 
 import (
+	"bytes"
 	"fmt"
 	"sync"
 	"testing"
@@ -13,7 +14,7 @@ func TestPq(t *testing.T) {
 	absoluteFirstItem := &PqItem{
 		ScheduledAt: time.Now().Unix(),
 		Key:         "absoluteFirst",
-		Value:       "absoluteFirst",
+		Value:       []byte("absoluteFirst"),
 		Retries:     0}
 
 	res := pq.Peek()
@@ -25,29 +26,29 @@ func TestPq(t *testing.T) {
 	pq.Insert(&PqItem{
 		ScheduledAt: time.Now().Unix(),
 		Key:         "first",
-		Value:       "first",
+		Value:       []byte("first"),
 		Retries:     0})
 	pq.Insert(&PqItem{
 		ScheduledAt: time.Now().Unix(),
 		Key:         "second",
-		Value:       "second",
+		Value:       []byte("second"),
 		Retries:     0})
 
 	res = pq.Peek()
-	if res.Key != "first" {
+	if string(res.Key) != "first" {
 		t.Fatalf("Expected peek: \"first\", got %s", res.Key)
 	}
 	time.Sleep(1 * time.Second)
 	pq.Insert(&PqItem{
 		ScheduledAt: time.Now().Unix(),
 		Key:         "third",
-		Value:       "third",
+		Value:       []byte("third"),
 		Retries:     0})
 	time.Sleep(1 * time.Second)
 	pq.Insert(&PqItem{
 		ScheduledAt: time.Now().Unix(),
 		Key:         "fourth",
-		Value:       "fourth",
+		Value:       []byte("fourth"),
 		Retries:     0})
 
 	if pq.HeapSize() != 4 {
@@ -56,14 +57,14 @@ func TestPq(t *testing.T) {
 
 	pq.Insert(absoluteFirstItem)
 	temporary := pq.Pop().Value
-	if temporary != absoluteFirstItem.Value {
+	if !bytes.Equal(temporary, absoluteFirstItem.Value) {
 		t.Fatalf("Expected %s, got %s", absoluteFirstItem.Value, temporary)
 	}
 	time.Sleep(1 * time.Second)
 	pq.Insert(&PqItem{
 		ScheduledAt: time.Now().Unix(),
 		Key:         "fifth",
-		Value:       "fifth",
+		Value:       []byte("fifth"),
 		Retries:     0})
 
 	// these 2 are concurrent, either ordering is valid
@@ -71,17 +72,17 @@ func TestPq(t *testing.T) {
 	pq.Pop()
 
 	temporary = pq.Pop().Value
-	if temporary != "third" {
+	if string(temporary) != "third" {
 		t.Fatalf("Expected %s, got %s", "third", temporary)
 	}
 
 	temporary = pq.Pop().Value
-	if temporary != "fourth" {
+	if string(temporary) != "fourth" {
 		t.Fatalf("Expected %s, got %s", "fourth", temporary)
 	}
 
 	temporary = pq.Pop().Value
-	if temporary != "fifth" {
+	if string(temporary) != "fifth" {
 		t.Fatalf("Expected %s, got %s", "fifth", temporary)
 	}
 }
@@ -95,9 +96,9 @@ func BenchmarkPq(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		item := pool.Get().(*PqItem)
 		b.StopTimer()
-		str := fmt.Sprintf("key_%d", i+1)
+		content := fmt.Sprintf("key_%d", i+1)
 		b.StartTimer()
-		item.Key = str
+		item.Key = content
 		item.ScheduledAt = time.Now().Unix()
 		pq.Insert(item)
 		pq.Pop()

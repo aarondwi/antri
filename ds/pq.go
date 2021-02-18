@@ -4,10 +4,10 @@ package ds
 //
 // This implementation is NOT thread-safe
 type PqItem struct {
-	ScheduledAt int64  `json:"scheduledAt"`
-	Key         string `json:"key"`
-	Value       string `json:"value"`
-	Retries     int16  `json:"retries"`
+	ScheduledAt int64
+	Key         string
+	Value       []byte
+	Retries     int16
 }
 
 // Pq is our main priority queue implementation

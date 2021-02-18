@@ -33,7 +33,7 @@ func TestOrderedMap(t *testing.T) {
 	if !ok {
 		log.Fatalf("Should be `ok`, but it is not")
 	}
-	if item.Key != "Second" {
+	if string(item.Key) != "Second" {
 		log.Fatalf("`key2` should map to `Second`, but got %v", item)
 	}
 	om.Delete("key2")
@@ -41,7 +41,7 @@ func TestOrderedMap(t *testing.T) {
 	if !ok {
 		log.Fatalf("item `key3` should still be in orderedmap, but is not")
 	}
-	if item.Key != "Third" {
+	if string(item.Key) != "Third" {
 		log.Fatalf("`key3` should map to `Third`, but got %s", item.Key)
 	}
 
@@ -60,11 +60,11 @@ func BenchmarkOrderedMap(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		item := pool.Get().(*PqItem)
 		b.StopTimer()
-		str := fmt.Sprintf("key_%d", i+1)
+		content := fmt.Sprintf("key_%d", i+1)
 		b.StartTimer()
-		item.Key = str
-		om.Insert(str, item)
-		om.Delete(str)
+		item.Key = content
+		om.Insert(string(content), item)
+		om.Delete(string(content))
 		pool.Put(item)
 	}
 }

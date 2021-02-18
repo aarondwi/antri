@@ -1,26 +1,28 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"math/rand"
+	"net"
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/aarondwi/antri/ds"
-	"github.com/fasthttp/router"
-	"github.com/valyala/fasthttp"
+	"github.com/aarondwi/antri/proto"
+	"google.golang.org/grpc"
 )
 
 var letterBytes = []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
-var fileFlag = os.O_APPEND | os.O_CREATE | os.O_RDWR | os.O_SYNC
+var fileFlag = os.O_APPEND | os.O_CREATE | os.O_RDWR
 var fileMode = os.FileMode(0644)
 var dataDir = "data/"
 var walFilenameFormat = dataDir + "wal-%016d"
@@ -48,7 +50,6 @@ type AntriServer struct {
 	// internal queue
 	mutex    *sync.Mutex
 	notEmpty *sync.Cond
-	notFull  *sync.Cond
 	pq       *ds.Pq
 	maxsize  int
 
@@ -58,14 +59,20 @@ type AntriServer struct {
 	inflightRecords *ds.OrderedMap
 	taskTimeout     int
 
-	// durability option
-	walFile *wal
-
-	// asynchronous snapshot
+	// durability option + asynchronous snapshot
+	walFile            *wal
 	checkpointDuration int
+
+	// utility to stop background worker
+	runningCtx context.Context
+	cancelFunc context.CancelFunc
+
+	// grpc's
+	gs *grpc.Server
+	proto.UnimplementedAntriServer
 }
 
-// NewAntriServer initiate the AntriServer with all needed params.
+// New initiate the AntriServer with all needed params.
 // So far:
 //
 // 1. maxsize to prevent OOM error (you can count the number of bytes needed for your data)
@@ -73,7 +80,7 @@ type AntriServer struct {
 // 2. taskTimeout is how long before a retrieved task by a worker considered failed, and should be resent
 //
 // 3. checkpointDuration is how often antri does its asynchronous snapshotting
-func NewAntriServer(maxsize, taskTimeout, checkpointDuration int) (*AntriServer, error) {
+func New(maxsize, taskTimeout, checkpointDuration int) (*AntriServer, error) {
 	if maxsize <= 0 {
 		return nil, fmt.Errorf("maxsize should be positive, received %d", maxsize)
 	}
@@ -86,7 +93,6 @@ func NewAntriServer(maxsize, taskTimeout, checkpointDuration int) (*AntriServer,
 
 	mutex := sync.Mutex{}
 	notEmpty := sync.NewCond(&mutex)
-	notFull := sync.NewCond(&mutex)
 
 	if _, err := os.Stat(dataDir); os.IsNotExist(err) {
 		os.Mkdir(dataDir, fileMode)
@@ -96,15 +102,18 @@ func NewAntriServer(maxsize, taskTimeout, checkpointDuration int) (*AntriServer,
 	inflightMutex := sync.Mutex{}
 	inflightRecords := ds.NewOrderedMap(int64(taskTimeout))
 
+	runningCtx, cancelFunc := context.WithCancel(context.Background())
+
 	as := &AntriServer{
 		mutex:              &mutex,
 		notEmpty:           notEmpty,
-		notFull:            notFull,
 		pq:                 ds.NewPq(),
 		maxsize:            maxsize,
 		inflightMutex:      &inflightMutex,
 		inflightRecords:    inflightRecords,
 		checkpointDuration: checkpointDuration,
+		runningCtx:         runningCtx,
+		cancelFunc:         cancelFunc,
 	}
 
 	// start a recovery, to get all the data,
@@ -153,62 +162,77 @@ func (as *AntriServer) rollWal() {
 // separate commit point from adding to in-memory data structure
 // dont wanna block read because of fsync
 // after this function returns, the message is considered committed
-func (as *AntriServer) writeNewMessageToWal(item *ds.PqItem) {
+func (as *AntriServer) writeNewMessageToWal(items []*ds.PqItem) {
 	as.walFile.M.Lock()
-	err := WriteNewMessageToLog(as.walFile.F, item)
+	for _, item := range items {
+		err := WriteNewMessageToLog(as.walFile.F, item)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+	err := as.walFile.F.Sync()
 	if err != nil {
 		log.Fatal(err)
 	}
 	as.rollWal()
 	as.walFile.M.Unlock()
 }
-func (as *AntriServer) addNewMessageToInMemoryDS(item *ds.PqItem) {
+
+func (as *AntriServer) addNewMessageToInMemoryDS(items []*ds.PqItem) {
 	as.mutex.Lock()
-	for as.pq.HeapSize() == as.maxsize {
-		as.notFull.Wait()
+	for _, item := range items {
+		as.pq.Insert(item)
 	}
-	as.pq.Insert(item)
 	as.mutex.Unlock()
 	as.notEmpty.Signal()
 }
 
-// AddTask save the task message to wal
+var success = &proto.OkResponse{Result: true}
+
+// ErrContentShouldNotBeEmpty is returned when
+// at least one of proto.AddTasksRequest contents is null
+var ErrContentShouldNotBeEmpty = errors.New("Content of tasks should be provided")
+
+// AddTasks save multiple tasks to wal
 // and add it to in-memory ds
-// Available via POST method, at /add
-func (as *AntriServer) AddTask(ctx *fasthttp.RequestCtx) {
-	// by default (for now), we gonna craete the key using 16-byte base62
-	if len(ctx.FormValue("value")) <= 0 {
-		ctx.SetStatusCode(400)
-		ctx.WriteString("content of the task should be provided")
-		return
+func (as *AntriServer) AddTasks(
+	ctx context.Context,
+	in *proto.AddTasksRequest) (*proto.OkResponse, error) {
+
+	for _, t := range in.Tasks {
+		if len(t.Content) == 0 {
+			return nil, ErrContentShouldNotBeEmpty
+		}
 	}
 
-	taskKeyStr := string(randStringBytes(16))
+	newTasks := make([]*ds.PqItem, 0, len(in.Tasks))
+	for _, t := range in.Tasks {
+		item := pqItemPool.Get().(*ds.PqItem)
+		item.Key = string(randStringBytes(16))
+		item.Value = t.Content
+		item.ScheduledAt = time.Now().Unix() + int64(t.SecondsFromNow)
+		item.Retries = 0
+		newTasks = append(newTasks, item)
+	}
 
-	item := pqItemPool.Get().(*ds.PqItem)
-	item.Key = taskKeyStr
-	item.Value = string(ctx.FormValue("value"))
-	item.ScheduledAt = time.Now().Unix() + int64(ctx.PostArgs().GetUintOrZero("secondsfromnow"))
-	item.Retries = 0
+	as.writeNewMessageToWal(newTasks)
+	as.addNewMessageToInMemoryDS(newTasks)
 
-	as.writeNewMessageToWal(item)
-	as.addNewMessageToInMemoryDS(item)
-
-	ctx.WriteString(taskKeyStr)
+	return success, nil
 }
 
 // only hold in-memory, the at-least-once guarantee is via log
-func (as *AntriServer) addToInflightStorer(key string, item *ds.PqItem) {
+func (as *AntriServer) addToInflightStorer(items []*ds.PqItem) {
 	as.inflightMutex.Lock()
-	as.inflightRecords.Insert(key, item)
+	for _, item := range items {
+		as.inflightRecords.Insert(string(item.Key), item)
+	}
 	as.inflightMutex.Unlock()
 }
 
 // get next message that has passed its scheduled time
-func (as *AntriServer) getReadyToBeRetrievedMessage() *ds.PqItem {
-	var res *ds.PqItem
-	var placeholder *ds.PqItem
-	var timediff int64
+func (as *AntriServer) getReadyToBeRetrievedMessage(N uint32) []*ds.PqItem {
+	var res []*ds.PqItem
 
 	// lock/unlock manually
 	// we dont want unlock to wait for fmt
@@ -217,128 +241,116 @@ func (as *AntriServer) getReadyToBeRetrievedMessage() *ds.PqItem {
 		for as.pq.HeapSize() == 0 {
 			as.notEmpty.Wait()
 		}
+
 		// won't be nil, as we wait for unfinishedTasks to be > 0
 		// so no need to check
-		placeholder = as.pq.Peek()
-		timediff = placeholder.ScheduledAt - int64(time.Now().Unix())
-		if timediff > 0 {
+		if timediff := as.pq.Peek().ScheduledAt - int64(time.Now().Unix()); timediff > 0 {
 			as.mutex.Unlock()
-			// can't sleep for timediff
+			// can't sleep for time difference
 			// cause some later message may be scheduled for earlier time
-			time.Sleep(100 * time.Millisecond)
+			time.Sleep(50 * time.Millisecond)
 			as.mutex.Lock()
 			continue
 		}
-		res = as.pq.Pop()
+
+		// only returns whichever is lower
+		valueToGet := as.pq.HeapSize()
+		if int(N) < valueToGet {
+			valueToGet = int(N)
+		}
+		now := int64(time.Now().Unix())
+		for i := 0; i < valueToGet; i++ {
+			// do not want to get too many
+			// as we may break this system's guarantee
+			if as.pq.Peek().ScheduledAt-now > 0 {
+				break
+			}
+			res = append(res, as.pq.Pop())
+		}
 		as.mutex.Unlock()
-		as.notFull.Signal()
 		break
 	}
 
 	return res
 }
 
-// RetrieveTask takes a task from in-memory ds
-// and move it to in-memory map.
-// Available via GET method, at /retrieve
-func (as *AntriServer) RetrieveTask(ctx *fasthttp.RequestCtx) {
-	res := as.getReadyToBeRetrievedMessage()
-	as.addToInflightStorer(res.Key, res)
+// GetTasks returns multiple (1..n) tasks
+// from in-memory ds, and for the duration, put it to in-memory map
+func (as *AntriServer) GetTasks(
+	ctx context.Context,
+	in *proto.GetTasksRequest) (*proto.GetTasksResponse, error) {
 
-	// this should NOT error
-	// because we totally manage this ourselves
-	byteArray, _ := json.Marshal(res)
-	ctx.Write(byteArray)
+	res := as.getReadyToBeRetrievedMessage(in.MaxN)
+	as.addToInflightStorer(res)
+	tasks := make([]*proto.RetrievedTask, 0, len(res))
+	for _, r := range res {
+		tasks = append(tasks, &proto.RetrievedTask{
+			Key:     r.Key,
+			Content: r.Value,
+		})
+	}
+	return &proto.GetTasksResponse{Tasks: tasks}, nil
 }
 
-func (as *AntriServer) writeCommitKeyToWal(key []byte) {
+func (as *AntriServer) writeCommitKeyToWal(keys []string) {
 	as.walFile.M.Lock()
-	err := WriteCommitMessageToLog(as.walFile.F, key)
-	if err != nil {
-		log.Fatal(err)
-	}
-	as.rollWal()
-	as.walFile.M.Unlock()
-}
-
-// CommitTask checks if the given key is currently inflight
-// if found, it removes the key from the inflightRecords
-// if not found, returns error
-func (as *AntriServer) CommitTask(ctx *fasthttp.RequestCtx) {
-	taskKey := ctx.UserValue("taskKey").(string)
-	as.inflightMutex.Lock()
-	item, ok := as.inflightRecords.Get(taskKey)
-	if ok {
-		as.inflightRecords.Delete(taskKey)
-	}
-	as.inflightMutex.Unlock()
-
-	// no need to do this inside the lock
-	if !ok {
-		ctx.SetStatusCode(404)
-		fmt.Fprint(ctx, "Task Key not found\n")
-		return
-	}
-
-	// meaning found
-	// put first, so can be reused directly
-	pqItemPool.Put(item)
-
-	as.writeCommitKeyToWal([]byte(taskKey))
-
-	ctx.WriteString("OK\n")
-}
-
-func (as *AntriServer) writeRetryOccurenceToWal(item *ds.PqItem) {
-	as.walFile.M.Lock()
-	err := WriteRetriesOccurenceToLog(as.walFile.F, item)
-	if err != nil {
-		log.Fatal(err)
-	}
-	as.rollWal()
-	as.walFile.M.Unlock()
-}
-
-// RejectTask checks if the given key is currently inflight
-// if found, it removes the key from the inflightRecords, and put it back to pq
-// if not found, returns error
-func (as *AntriServer) RejectTask(ctx *fasthttp.RequestCtx) {
-	secondsfromnow := 5 // default to 5s
-	if len(ctx.FormValue("secondsfromnow")) > 0 {
-		secondsfromnow, err := strconv.Atoi(string(ctx.FormValue("secondsfromnow")))
+	for _, key := range keys {
+		err := WriteCommitMessageToLog(as.walFile.F, []byte(key))
 		if err != nil {
-			ctx.SetStatusCode(400)
-			fmt.Fprint(ctx, "Failed reading the value of `secondsfromnow`. Did you pass a proper integer value?\n")
-			return
-		}
-		if secondsfromnow < 0 {
-			ctx.SetStatusCode(400)
-			fmt.Fprint(ctx, "If provided, the value of `secondsfromnow` should be zero or positive\n")
-			return
+			log.Fatal(err)
 		}
 	}
+	err := as.walFile.F.Sync()
+	if err != nil {
+		log.Fatal(err)
+	}
+	as.rollWal()
+	as.walFile.M.Unlock()
+}
 
-	taskKey := ctx.UserValue("taskKey").(string)
+// CommitTasks checks if the given keys are inflight
+// if found, it removes the key from the inflightRecords
+//
+// As it is batched, we don't want to fail all keys when only one fail.
+// As tradeoff, this will not return error, but will happily continue
+func (as *AntriServer) CommitTasks(
+	ctx context.Context,
+	in *proto.CommitTasksRequest) (*proto.OkResponse, error) {
+
+	keys := make([]string, 0, len(in.Keys))
+	for _, key := range in.Keys {
+		keys = append(keys, key)
+	}
+
 	as.inflightMutex.Lock()
-	item, ok := as.inflightRecords.Get(taskKey)
-	if ok {
-		as.inflightRecords.Delete(taskKey)
+	for _, key := range keys {
+		item, ok := as.inflightRecords.Get(key)
+		if ok {
+			// put first, so can be reused directly
+			pqItemPool.Put(item)
+		}
 	}
 	as.inflightMutex.Unlock()
 
-	// no need to do this inside the lock
-	if !ok {
-		ctx.SetStatusCode(404)
-		fmt.Fprint(ctx, "Task Key not found\n")
-		return
+	as.writeCommitKeyToWal(keys)
+
+	return success, nil
+}
+
+func (as *AntriServer) writeRetryOccurenceToWal(items []*ds.PqItem) {
+	as.walFile.M.Lock()
+	for _, item := range items {
+		err := WriteRetriesOccurenceToLog(as.walFile.F, item)
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
-
-	item.Retries++
-	item.ScheduledAt = time.Now().Unix() + int64(secondsfromnow)
-	as.writeRetryOccurenceToWal(item)
-	as.addNewMessageToInMemoryDS(item)
-
-	ctx.WriteString("OK\n")
+	err := as.walFile.F.Sync()
+	if err != nil {
+		log.Fatal(err)
+	}
+	as.rollWal()
+	as.walFile.M.Unlock()
 }
 
 type antriServerStats struct {
@@ -346,17 +358,14 @@ type antriServerStats struct {
 	InflightTasks int `json:"inflight_tasks"`
 }
 
-// Stats returns current waiting and inflight tasks
-//
-// Neither the reading is atomic, nor is a linearizable operations
-func (as *AntriServer) Stats(ctx *fasthttp.RequestCtx) {
+func (as *AntriServer) stats() []byte {
 	waitingTask := as.pq.HeapSize()
 	inflightTasks := as.inflightRecords.Length()
 	byteArray, _ := json.Marshal(antriServerStats{
 		WaitingTask:   waitingTask,
 		InflightTasks: inflightTasks,
 	})
-	ctx.Write(byteArray)
+	return byteArray
 }
 
 func (as *AntriServer) batchInsertIntoInMemoryDS(items []*ds.PqItem) {
@@ -468,6 +477,8 @@ func (as *AntriServer) snapshotter() {
 	ticker := time.NewTicker(time.Duration(as.checkpointDuration) * time.Second)
 	for {
 		select {
+		case <-as.runningCtx.Done():
+			return
 		case <-ticker.C:
 			as.walFile.M.Lock()
 			currentWalFilename := filepath.Base(as.walFile.F.Name())
@@ -594,7 +605,6 @@ func (as *AntriServer) snapshotter() {
 			for _, f := range walFilesToBeCompacted {
 				os.Remove(dataDir + f)
 			}
-		default:
 		}
 	}
 }
@@ -604,11 +614,13 @@ func (as *AntriServer) snapshotter() {
 func (as *AntriServer) taskTimeoutWatchdog() {
 	// cause we always append to back
 	// we can be sure that this array is sorted on expireOn
-	ticker := time.NewTicker(10 * time.Millisecond)
+	ticker := time.NewTicker(500 * time.Millisecond)
 	for {
 		select {
+		case <-as.runningCtx.Done():
+			return
 		case <-ticker.C:
-			itemArr := make([]*ds.PqItem, 0)
+			itemArr := make([]*ds.PqItem, 0, 10)
 
 			// remove from inflight
 			currentTime := time.Now().Unix()
@@ -623,35 +635,36 @@ func (as *AntriServer) taskTimeoutWatchdog() {
 			}
 			as.inflightMutex.Unlock()
 
-			// either way, we need to put it individually
-			// while batching may seems faster
-			// but we also may surpassed the task number limit
-			// unless it is allowed (at least not yet)
 			for _, item := range itemArr {
 				item.Retries++
-				as.writeRetryOccurenceToWal(item)
-				as.addNewMessageToInMemoryDS(item)
 			}
+			as.writeRetryOccurenceToWal(itemArr)
+			as.addNewMessageToInMemoryDS(itemArr)
 		}
 	}
 }
 
 // Close all the underlying system
 func (as *AntriServer) Close() {
+	as.gs.Stop()
+
+	log.Println("Stopping all background workers...")
+	as.cancelFunc()
+
 	log.Println("Closing wal file...")
 	as.walFile.F.Close()
 }
 
-// NewAntriServerRouter returns fasthttp/router that already set with AntriServer handler
-// Also seed the rng
-func NewAntriServerRouter(as *AntriServer) *router.Router {
-	rand.Seed(time.Now().UTC().UnixNano())
-	r := router.New()
-	r.POST("/add", as.AddTask)
-	r.GET("/retrieve", as.RetrieveTask)
-	r.POST("/{taskKey}/commit", as.CommitTask)
-	r.POST("/{taskKey}/reject", as.RejectTask)
-	r.GET("/stat", as.Stats)
+// Run AntriServer
+//
+// Returns when grpcServer returns
+func (as *AntriServer) Run(address string) error {
+	lis, err := net.Listen("tcp", address)
+	if err != nil {
+		return err
+	}
 
-	return r
+	as.gs = grpc.NewServer()
+	proto.RegisterAntriServer(as.gs, as)
+	return as.gs.Serve(lis)
 }

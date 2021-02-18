@@ -1,439 +1,273 @@
 package main
 
 import (
-	"encoding/json"
-	"fmt"
+	"bytes"
+	"context"
 	"log"
-	"strconv"
+	"os"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/aarondwi/antri/ds"
-	"github.com/valyala/fasthttp"
-	"github.com/valyala/fasthttp/reuseport"
+	"github.com/aarondwi/antri/proto"
+	"google.golang.org/grpc"
 )
 
-var (
-	client   = &fasthttp.Client{}
-	addr     = "127.0.0.1:3000"
-	httpaddr = "http://127.0.0.1:3000"
-	as, _    = NewAntriServer(10, 1, 1)
-)
+var addr = "127.0.0.1:3000"
 
 func TestAntriServerParameter(t *testing.T) {
-	_, err := NewAntriServer(0, 1, 1)
+	_, err := New(0, 1, 1)
 	if err == nil {
 		log.Fatalf("maxsize should be positive, but it is not returning an error")
 	}
 
-	_, err = NewAntriServer(1, -1, 1)
+	_, err = New(1, -1, 1)
 	if err == nil {
 		log.Fatalf("taskTimeout negative value should be error, but it is not")
 	}
 
-	_, err = NewAntriServer(1, 1, -1)
+	_, err = New(1, 1, -1)
 	if err == nil {
 		log.Fatalf("checkpointDuration negative value should be error, but it is not")
 	}
 }
 
-func TestAddRetrieveCommit(t *testing.T) {
-	server := fasthttp.Server{
-		Handler:     NewAntriServerRouter(as).Handler,
-		Concurrency: 2,
-	}
-
-	ln, _ := reuseport.Listen("tcp4", addr)
-	defer ln.Close()
-	go func() { _ = server.Serve(ln) }()
-
-	req := fasthttp.AcquireRequest()
-	res := fasthttp.AcquireResponse()
-	defer fasthttp.ReleaseRequest(req)
-	defer fasthttp.ReleaseResponse(res)
-
-	req.SetRequestURI(httpaddr + "/add")
-	req.Header.SetMethod("POST")
-	req.PostArgs().AddBytesKV([]byte("value"), []byte("helloworld"))
-
-	client.Do(req, res)
-	if res.StatusCode() != 200 {
-		t.Logf(string(res.Body()))
-		t.Fatalf("Expected Status 200 OK, got %d", res.StatusCode())
-	}
-	if len(res.Body()) != 16 {
-		t.Fatalf("Expected OK, got %v", res.Body())
-	}
-	keyToCheck := string(res.Body())
-
-	req.Reset()
-	res.Reset()
-	req.SetRequestURI(httpaddr + "/retrieve")
-	client.Do(req, res)
-	if res.StatusCode() != 200 {
-		t.Fatalf("Expected Status 200 OK, got %d", res.StatusCode())
-	}
-	var jsonRes ds.PqItem
-	err := json.Unmarshal(res.Body(), &jsonRes)
+func TestAddRetrieveCommitMultipleTask(t *testing.T) {
+	err := os.RemoveAll("data")
 	if err != nil {
-		t.Logf(string(res.Body()))
-		t.Fatalf("Should be a json of PqItem, but it is not")
-	}
-	if jsonRes.Key != keyToCheck {
-		t.Fatalf("Expected key %s, but got %s", keyToCheck, jsonRes.Key)
+		log.Fatal(err)
 	}
 
-	req.Reset()
-	res.Reset()
-	req.SetRequestURI(fmt.Sprintf("%s/%s/commit", httpaddr, keyToCheck))
-	req.Header.SetMethod("POST")
-	client.Do(req, res)
-
-	if res.StatusCode() != 200 {
-		t.Fatalf("Expected Status 200 OK, got %d", res.StatusCode())
+	as, err := New(10_000, 1, 1)
+	if err != nil {
+		t.Fatal(err)
 	}
+	go as.Run(addr)
+
+	conn, err := grpc.Dial(addr, grpc.WithInsecure())
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer conn.Close()
+	c := proto.NewAntriClient(conn)
+
+	tasks := []*proto.NewTask{
+		{
+			Content:        []byte("HelloWorld1"),
+			SecondsFromNow: 2,
+		},
+		{
+			Content:        []byte("HelloWorld2"),
+			SecondsFromNow: 0,
+		},
+		{
+			Content:        []byte("HelloWorld3"),
+			SecondsFromNow: 0,
+		},
+	}
+	addTaskResp, err := c.AddTasks(
+		context.Background(),
+		&proto.AddTasksRequest{
+			Tasks: tasks,
+		})
+
+	if err != nil {
+		log.Fatalf("AddTasks should not return an error, but we got: %v", err)
+	}
+	if !addTaskResp.Result {
+		log.Fatal("AddTasks resp.Result should be `true`, but it is not")
+	}
+
+	retrievedTasks, err := c.GetTasks(context.Background(),
+		&proto.GetTasksRequest{MaxN: 2})
+	if err != nil {
+		log.Fatalf("GetTasks should not return an error, but we got: %v", err)
+	}
+
+	if len(retrievedTasks.Tasks) != 2 {
+		t.Fatalf("It should return 2 tasks, but instead we got %v", retrievedTasks.Tasks)
+	}
+	if !bytes.Equal(retrievedTasks.Tasks[0].Content, tasks[1].Content) {
+		t.Fatalf("Should be matched, but instead we got %v and %v",
+			retrievedTasks.Tasks[0].Content, tasks[1].Content)
+	}
+	if !bytes.Equal(retrievedTasks.Tasks[1].Content, tasks[2].Content) {
+		t.Fatalf("Should be matched, but instead we got %v and %v",
+			retrievedTasks.Tasks[1].Content, tasks[2].Content)
+	}
+
+	keysToCommit := make([]string, 10)
+	keysToCommit = append(keysToCommit, retrievedTasks.Tasks[0].Key)
+	keysToCommit = append(keysToCommit, retrievedTasks.Tasks[1].Key)
+	keysToCommit = append(keysToCommit, "Non Existent Key")
+
+	commitResult, err := c.CommitTasks(context.Background(), &proto.CommitTasksRequest{
+		Keys: keysToCommit,
+	})
+	if err != nil {
+		log.Fatalf("CommitTasks should not return an error, but we got: %v", err)
+	}
+	if !commitResult.Result {
+		log.Fatal("commitResult resp.Result should be `true`, even with non-existent key, but it is not")
+	}
+
+	as.Close()
+	time.Sleep(1 * time.Second) // give time for the system to shutdown
 }
 
-func TestAddRetrieveRejectThenReretrieve(t *testing.T) {
-	server := fasthttp.Server{
-		Handler:     NewAntriServerRouter(as).Handler,
-		Concurrency: 2,
-	}
-
-	ln, _ := reuseport.Listen("tcp4", addr)
-	defer ln.Close()
-	go func() { _ = server.Serve(ln) }()
-
-	req := fasthttp.AcquireRequest()
-	res := fasthttp.AcquireResponse()
-	defer fasthttp.ReleaseRequest(req)
-	defer fasthttp.ReleaseResponse(res)
-
-	req.SetRequestURI(httpaddr + "/add")
-	req.Header.SetMethod("POST")
-	req.PostArgs().AddBytesKV([]byte("value"), []byte("helloworld"))
-
-	client.Do(req, res)
-	if res.StatusCode() != 200 {
-		t.Logf(string(res.Body()))
-		t.Fatalf("Expected Status 200 OK, got %d", res.StatusCode())
-	}
-	if len(res.Body()) != 16 {
-		t.Fatalf("Expected OK, got %v", res.Body())
-	}
-	keyToCheck := string(res.Body())
-
-	req.Reset()
-	res.Reset()
-	req.SetRequestURI(httpaddr + "/retrieve")
-	client.Do(req, res)
-	if res.StatusCode() != 200 {
-		t.Fatalf("Expected Status 200 OK, got %d", res.StatusCode())
-	}
-	var jsonRes ds.PqItem
-	err := json.Unmarshal(res.Body(), &jsonRes)
+func TestAddRetrieveTimeoutReretrieveCommit(t *testing.T) {
+	err := os.RemoveAll("data")
 	if err != nil {
-		t.Logf(string(res.Body()))
-		t.Fatalf("Should be a json of PqItem, but it is not")
-	}
-	if jsonRes.Key != keyToCheck {
-		t.Fatalf("Expected key %s, but got %s", keyToCheck, jsonRes.Key)
+		log.Fatal(err)
 	}
 
-	req.Reset()
-	res.Reset()
-	req.SetRequestURI(fmt.Sprintf("%s/%s/reject", httpaddr, keyToCheck))
-	req.Header.SetMethod("POST")
-	client.Do(req, res)
-
-	if res.StatusCode() != 200 {
-		t.Fatalf("Expected Status 200 OK, got %d", res.StatusCode())
-	}
-
-	req.Reset()
-	res.Reset()
-	time.Sleep(6 * time.Second)
-	req.SetRequestURI(httpaddr + "/retrieve")
-	client.Do(req, res)
-	if res.StatusCode() != 200 {
-		t.Fatalf("Expected Status 200 OK, got %d", res.StatusCode())
-	}
-	err = json.Unmarshal(res.Body(), &jsonRes)
+	as, err := New(10_000, 1, 1)
 	if err != nil {
-		t.Logf(string(res.Body()))
-		t.Fatalf("Should be a json of PqItem, but it is not")
+		t.Fatal(err)
 	}
-	if jsonRes.Key != keyToCheck {
-		t.Fatalf("Expected key %s, but got %s", keyToCheck, jsonRes.Key)
-	}
+	go as.Run(addr)
 
-	req.Reset()
-	res.Reset()
-	req.SetRequestURI(fmt.Sprintf("%s/%s/commit", httpaddr, keyToCheck))
-	req.Header.SetMethod("POST")
-	client.Do(req, res)
-
-	if res.StatusCode() != 200 {
-		t.Fatalf("Expected Status 200 OK, got %d", res.StatusCode())
-	}
-}
-
-func TestRejectError(t *testing.T) {
-	server := fasthttp.Server{
-		Handler:     NewAntriServerRouter(as).Handler,
-		Concurrency: 2,
-	}
-
-	ln, _ := reuseport.Listen("tcp4", addr)
-	defer ln.Close()
-	go func() { _ = server.Serve(ln) }()
-
-	req := fasthttp.AcquireRequest()
-	res := fasthttp.AcquireResponse()
-	defer fasthttp.ReleaseRequest(req)
-	defer fasthttp.ReleaseResponse(res)
-
-	req.SetRequestURI(httpaddr + "/nosuchkey/reject")
-	req.Header.SetMethod("POST")
-	req.PostArgs().AddBytesKV([]byte("secondsfromnow"), []byte("helloworld"))
-	client.Do(req, res)
-	if res.StatusCode() != 400 {
-		t.Fatalf(
-			"Expected Status 400 Bad Request because `secondsfromnow` is not an integer, but got %d",
-			res.StatusCode())
-	}
-
-	req.Reset()
-	res.Reset()
-
-	req.SetRequestURI(httpaddr + "/nosuchkey/reject")
-	req.Header.SetMethod("POST")
-	req.PostArgs().AddBytesKV([]byte("secondsfromnow"), []byte(strconv.Itoa(-10)))
-	client.Do(req, res)
-	if res.StatusCode() != 400 {
-		t.Fatalf(
-			"Expected Status 400 Bad Request because `secondsfromnow` is negative, but got %d",
-			res.StatusCode())
-	}
-}
-
-func TestAddRetrieveTimeoutThenReretrieve(t *testing.T) {
-	server := fasthttp.Server{
-		Handler:     NewAntriServerRouter(as).Handler,
-		Concurrency: 1,
-	}
-
-	ln, _ := reuseport.Listen("tcp4", addr)
-	defer ln.Close()
-	go func() { _ = server.Serve(ln) }()
-
-	req := fasthttp.AcquireRequest()
-	res := fasthttp.AcquireResponse()
-	defer fasthttp.ReleaseRequest(req)
-	defer fasthttp.ReleaseResponse(res)
-
-	req.SetRequestURI(httpaddr + "/add")
-	req.Header.SetMethod("POST")
-	req.PostArgs().AddBytesKV([]byte("value"), []byte("helloworld"))
-
-	client.Do(req, res)
-	if res.StatusCode() != 200 {
-		t.Logf(string(res.Body()))
-		t.Fatalf("Expected Status 200 OK, got %d", res.StatusCode())
-	}
-	if len(res.Body()) != 16 {
-		t.Fatalf("Expected OK, got %v", res.Body())
-	}
-	keyToCheck := string(res.Body())
-
-	req.Reset()
-	res.Reset()
-	req.SetRequestURI(httpaddr + "/retrieve")
-	client.Do(req, res)
-	if res.StatusCode() != 200 {
-		t.Fatalf("Expected Status 200 OK, got %d", res.StatusCode())
-	}
-	var jsonRes ds.PqItem
-	err := json.Unmarshal(res.Body(), &jsonRes)
+	conn, err := grpc.Dial(addr, grpc.WithInsecure())
 	if err != nil {
-		t.Logf(string(res.Body()))
-		t.Fatalf("Should be a json of PqItem, but it is not")
+		log.Fatal(err)
 	}
-	if jsonRes.Key != keyToCheck {
-		t.Fatalf("Expected key %s, but got %s", keyToCheck, jsonRes.Key)
+	defer conn.Close()
+	c := proto.NewAntriClient(conn)
+
+	addTaskResp, err := c.AddTasks(context.Background(), &proto.AddTasksRequest{
+		Tasks: []*proto.NewTask{
+			{
+				Content:        []byte("anothercontent"),
+				SecondsFromNow: 0,
+			},
+		},
+	})
+	if !addTaskResp.Result {
+		log.Fatal("AddTasks resp.Result should be `true`, but it is not")
+	}
+
+	retrievedTasks, err := c.GetTasks(context.Background(),
+		&proto.GetTasksRequest{MaxN: 1})
+	if len(retrievedTasks.Tasks) != 1 {
+		t.Fatalf("It should return 1 task, but instead we got %v", retrievedTasks.Tasks)
 	}
 
 	time.Sleep(2 * time.Second)
 
-	req.Reset()
-	res.Reset()
-	req.SetRequestURI(httpaddr + "/retrieve")
-	client.Do(req, res)
-	if res.StatusCode() != 200 {
-		t.Fatalf("Expected Status 200 OK, got %d", res.StatusCode())
+	retrievedTimeoutTasks, err := c.GetTasks(context.Background(),
+		&proto.GetTasksRequest{MaxN: 1})
+	if len(retrievedTimeoutTasks.Tasks) != 1 {
+		t.Fatalf("It should return 1 task, but instead we got %v", retrievedTasks.Tasks)
 	}
-	err = json.Unmarshal(res.Body(), &jsonRes)
-	if err != nil {
-		t.Logf(string(res.Body()))
-		t.Fatalf("Should be a json of PqItem, but it is not")
-	}
-	if jsonRes.Key != keyToCheck {
-		t.Fatalf("Expected key %s, but got %s", keyToCheck, jsonRes.Key)
-	}
-	if jsonRes.Retries != 1 {
-		t.Fatalf("The retry number should be 1 after re-retrieve, but got %d", jsonRes.Retries)
+	if retrievedTasks.Tasks[0].Key != retrievedTimeoutTasks.Tasks[0].Key {
+		t.Fatalf("Should be the same key, but instead we got %s and %s",
+			retrievedTasks.Tasks[0].Key, retrievedTimeoutTasks.Tasks[0].Key)
 	}
 
-	req.Reset()
-	res.Reset()
-	req.SetRequestURI(fmt.Sprintf("%s/%s/commit", httpaddr, keyToCheck))
-	req.Header.SetMethod("POST")
-	client.Do(req, res)
+	keysToCommit := make([]string, 10)
+	keysToCommit = append(keysToCommit, retrievedTasks.Tasks[0].Key)
 
-	if res.StatusCode() != 200 {
-		t.Fatalf("Expected Status 200 OK, got %d", res.StatusCode())
+	commitResult, err := c.CommitTasks(context.Background(), &proto.CommitTasksRequest{
+		Keys: keysToCommit,
+	})
+	if !commitResult.Result {
+		log.Fatal("commitResult resp.Result should be `true`, but it is not")
 	}
+
+	as.Close()
+	time.Sleep(1 * time.Second) // give time for the system to shutdown
 }
 
 func TestValueNotProvided(t *testing.T) {
-	server := fasthttp.Server{
-		Handler:     NewAntriServerRouter(as).Handler,
-		Concurrency: 2,
+	err := os.RemoveAll("data")
+	if err != nil {
+		log.Fatal(err)
 	}
 
-	ln, _ := reuseport.Listen("tcp4", addr)
-	defer ln.Close()
-	go func() { _ = server.Serve(ln) }()
-
-	req := fasthttp.AcquireRequest()
-	res := fasthttp.AcquireResponse()
-
-	req.SetRequestURI(httpaddr + "/add")
-	req.Header.SetMethod("POST")
-	client.Do(req, res)
-	if res.StatusCode() != 400 {
-		t.Fatalf("Expected Status 400, got %d", res.StatusCode())
+	as, err := New(10_000, 1, 1)
+	if err != nil {
+		t.Fatal(err)
 	}
+	go as.Run(addr)
+
+	conn, err := grpc.Dial(addr, grpc.WithInsecure())
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer conn.Close()
+	c := proto.NewAntriClient(conn)
+
+	tasks := make([]*proto.NewTask, 5)
+	tasks = append(tasks, &proto.NewTask{
+		Content:        []byte(""),
+		SecondsFromNow: 0,
+	})
+
+	_, err = c.AddTasks(context.Background(), &proto.AddTasksRequest{
+		Tasks: tasks,
+	})
+	if err == nil {
+		log.Fatalf("AddTasks should return error because empty Content, but it is not")
+	}
+
+	as.Close()
+	time.Sleep(1 * time.Second) // give time for the system to shutdown
 }
-
-func TestCommitNotFound(t *testing.T) {
-	server := fasthttp.Server{
-		Handler:     NewAntriServerRouter(as).Handler,
-		Concurrency: 2,
-	}
-
-	ln, _ := reuseport.Listen("tcp4", addr)
-	defer ln.Close()
-	go func() { _ = server.Serve(ln) }()
-
-	req := fasthttp.AcquireRequest()
-	res := fasthttp.AcquireResponse()
-
-	req.SetRequestURI(httpaddr + "/notfound/commit")
-	req.Header.SetMethod("POST")
-	client.Do(req, res)
-	if res.StatusCode() != 404 {
-		t.Fatalf("Expected Status 404, got %d", res.StatusCode())
-	}
-}
-
-func TestRejectNotFound(t *testing.T) {
-	server := fasthttp.Server{
-		Handler:     NewAntriServerRouter(as).Handler,
-		Concurrency: 2,
-	}
-
-	ln, _ := reuseport.Listen("tcp4", addr)
-	defer ln.Close()
-	go func() { _ = server.Serve(ln) }()
-
-	req := fasthttp.AcquireRequest()
-	res := fasthttp.AcquireResponse()
-
-	req.SetRequestURI(httpaddr + "/notfound/reject")
-	req.Header.SetMethod("POST")
-	client.Do(req, res)
-	if res.StatusCode() != 404 {
-		t.Fatalf("Expected Status 404, got %d", res.StatusCode())
-	}
-}
-
-var (
-	as2, _    = NewAntriServer(1, 1, 10)
-	addr2     = "127.0.0.1:3001"
-	httpaddr2 = "http://127.0.0.1:3001"
-)
 
 func TestLockWaitFlow(t *testing.T) {
-	server := fasthttp.Server{
-		Handler:     NewAntriServerRouter(as2).Handler,
-		Concurrency: 5,
+	err := os.RemoveAll("data")
+	if err != nil {
+		log.Fatal(err)
 	}
 
-	ln, _ := reuseport.Listen("tcp4", addr2)
-	defer ln.Close()
-	go func() { _ = server.Serve(ln) }()
+	as, err := New(10_000, 1, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	go as.Run(addr)
 
-	var keyRetrieved string
+	conn, err := grpc.Dial(addr, grpc.WithInsecure())
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer conn.Close()
+	c := proto.NewAntriClient(conn)
+
+	keyRetrieved := ""
 	var wg sync.WaitGroup
 	go func() {
 		wg.Add(1)
-		req := fasthttp.AcquireRequest()
-		res := fasthttp.AcquireResponse()
-		defer fasthttp.ReleaseRequest(req)
-		defer fasthttp.ReleaseResponse(res)
-
-		req.SetRequestURI(httpaddr2 + "/retrieve")
-		client.Do(req, res)
-		if res.StatusCode() != 200 {
-			keyRetrieved = fmt.Sprintf("`Expected Status 200 OK, got %d`", res.StatusCode())
-			wg.Done()
-			return
-		}
-
-		time.Sleep(1 * time.Second) // give time for 2 writes to come and get blocked
-		var jsonRes ds.PqItem
-		err := json.Unmarshal(res.Body(), &jsonRes)
+		retrievedTasks, err := c.GetTasks(context.Background(), &proto.GetTasksRequest{
+			MaxN: 1,
+		})
 		if err != nil {
-			keyRetrieved = fmt.Sprint("`Should be a json of PqItem, but it is not`")
-			wg.Done()
-			return
+			log.Fatalf("It should block and not fail, but it does fail: %v", err)
 		}
-		keyRetrieved = jsonRes.Key
+		keyRetrieved = retrievedTasks.Tasks[0].Key
 		wg.Done()
 	}()
 
 	time.Sleep(1 * time.Second)
-	req := fasthttp.AcquireRequest()
-	res := fasthttp.AcquireResponse()
-	defer fasthttp.ReleaseRequest(req)
-	defer fasthttp.ReleaseResponse(res)
 
-	req.SetRequestURI(httpaddr2 + "/add")
-	req.Header.SetMethod("POST")
-	req.PostArgs().AddBytesKV([]byte("value"), []byte("helloworld"))
-
-	client.Do(req, res)
-	if res.StatusCode() != 200 {
-		t.Logf(string(res.Body()))
-		t.Fatalf("Expected Status 200 OK, got %d", res.StatusCode())
+	tasks := []*proto.NewTask{
+		{
+			Content:        []byte("hello_antri_server"),
+			SecondsFromNow: 0,
+		},
 	}
-	if len(res.Body()) != 16 {
-		t.Fatalf("Expected OK, got %v", res.Body())
-	}
-	keyToCheck := string(res.Body())
-	client.Do(req, res)
-	if res.StatusCode() != 200 {
-		t.Logf(string(res.Body()))
-		t.Fatalf("Expected Status 200 OK, got %d", res.StatusCode())
-	}
-	if len(res.Body()) != 16 {
-		t.Fatalf("Expected OK, got %v", res.Body())
+	_, err = c.AddTasks(context.Background(),
+		&proto.AddTasksRequest{
+			Tasks: tasks,
+		})
+	if err != nil {
+		log.Fatalf("AddTasks should succeed, but it does not, with error: %v", err)
 	}
 
 	wg.Wait()
-	if keyToCheck != keyRetrieved {
-		t.Fatalf("Expected %s, got %s", keyToCheck, keyRetrieved)
+	if keyRetrieved == "" {
+		t.Fatal("keyRetrieved should have changed to non-empty string")
 	}
+
+	as.Close()
+	time.Sleep(1 * time.Second) // give time for the system to shutdown
 }

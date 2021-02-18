@@ -25,18 +25,73 @@ const (
 // of the legacy proto package is being used.
 const _ = proto.ProtoPackageIsVersion4
 
+type NewTask struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Content        []byte `protobuf:"bytes,1,opt,name=content,proto3" json:"content,omitempty"`
+	SecondsFromNow uint32 `protobuf:"varint,2,opt,name=secondsFromNow,proto3" json:"secondsFromNow,omitempty"`
+}
+
+func (x *NewTask) Reset() {
+	*x = NewTask{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_antri_proto_msgTypes[0]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *NewTask) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NewTask) ProtoMessage() {}
+
+func (x *NewTask) ProtoReflect() protoreflect.Message {
+	mi := &file_antri_proto_msgTypes[0]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NewTask.ProtoReflect.Descriptor instead.
+func (*NewTask) Descriptor() ([]byte, []int) {
+	return file_antri_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *NewTask) GetContent() []byte {
+	if x != nil {
+		return x.Content
+	}
+	return nil
+}
+
+func (x *NewTask) GetSecondsFromNow() uint32 {
+	if x != nil {
+		return x.SecondsFromNow
+	}
+	return 0
+}
+
 type AddTasksRequest struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Contents [][]byte `protobuf:"bytes,1,rep,name=contents,proto3" json:"contents,omitempty"`
+	Tasks []*NewTask `protobuf:"bytes,1,rep,name=tasks,proto3" json:"tasks,omitempty"`
 }
 
 func (x *AddTasksRequest) Reset() {
 	*x = AddTasksRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_antri_proto_msgTypes[0]
+		mi := &file_antri_proto_msgTypes[1]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -49,7 +104,7 @@ func (x *AddTasksRequest) String() string {
 func (*AddTasksRequest) ProtoMessage() {}
 
 func (x *AddTasksRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_antri_proto_msgTypes[0]
+	mi := &file_antri_proto_msgTypes[1]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -62,12 +117,12 @@ func (x *AddTasksRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AddTasksRequest.ProtoReflect.Descriptor instead.
 func (*AddTasksRequest) Descriptor() ([]byte, []int) {
-	return file_antri_proto_rawDescGZIP(), []int{0}
+	return file_antri_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *AddTasksRequest) GetContents() [][]byte {
+func (x *AddTasksRequest) GetTasks() []*NewTask {
 	if x != nil {
-		return x.Contents
+		return x.Tasks
 	}
 	return nil
 }
@@ -77,13 +132,13 @@ type CommitTasksRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Keys [][]byte `protobuf:"bytes,1,rep,name=keys,proto3" json:"keys,omitempty"`
+	Keys []string `protobuf:"bytes,1,rep,name=keys,proto3" json:"keys,omitempty"`
 }
 
 func (x *CommitTasksRequest) Reset() {
 	*x = CommitTasksRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_antri_proto_msgTypes[1]
+		mi := &file_antri_proto_msgTypes[2]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -96,7 +151,7 @@ func (x *CommitTasksRequest) String() string {
 func (*CommitTasksRequest) ProtoMessage() {}
 
 func (x *CommitTasksRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_antri_proto_msgTypes[1]
+	mi := &file_antri_proto_msgTypes[2]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -109,10 +164,10 @@ func (x *CommitTasksRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommitTasksRequest.ProtoReflect.Descriptor instead.
 func (*CommitTasksRequest) Descriptor() ([]byte, []int) {
-	return file_antri_proto_rawDescGZIP(), []int{1}
+	return file_antri_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *CommitTasksRequest) GetKeys() [][]byte {
+func (x *CommitTasksRequest) GetKeys() []string {
 	if x != nil {
 		return x.Keys
 	}
@@ -130,7 +185,7 @@ type OkResponse struct {
 func (x *OkResponse) Reset() {
 	*x = OkResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_antri_proto_msgTypes[2]
+		mi := &file_antri_proto_msgTypes[3]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -143,7 +198,7 @@ func (x *OkResponse) String() string {
 func (*OkResponse) ProtoMessage() {}
 
 func (x *OkResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_antri_proto_msgTypes[2]
+	mi := &file_antri_proto_msgTypes[3]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -156,7 +211,7 @@ func (x *OkResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OkResponse.ProtoReflect.Descriptor instead.
 func (*OkResponse) Descriptor() ([]byte, []int) {
-	return file_antri_proto_rawDescGZIP(), []int{2}
+	return file_antri_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *OkResponse) GetResult() bool {
@@ -171,13 +226,13 @@ type GetTasksRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	N int32 `protobuf:"varint,1,opt,name=n,proto3" json:"n,omitempty"`
+	MaxN uint32 `protobuf:"varint,1,opt,name=maxN,proto3" json:"maxN,omitempty"`
 }
 
 func (x *GetTasksRequest) Reset() {
 	*x = GetTasksRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_antri_proto_msgTypes[3]
+		mi := &file_antri_proto_msgTypes[4]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -190,7 +245,7 @@ func (x *GetTasksRequest) String() string {
 func (*GetTasksRequest) ProtoMessage() {}
 
 func (x *GetTasksRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_antri_proto_msgTypes[3]
+	mi := &file_antri_proto_msgTypes[4]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -203,14 +258,69 @@ func (x *GetTasksRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTasksRequest.ProtoReflect.Descriptor instead.
 func (*GetTasksRequest) Descriptor() ([]byte, []int) {
-	return file_antri_proto_rawDescGZIP(), []int{3}
+	return file_antri_proto_rawDescGZIP(), []int{4}
 }
 
-func (x *GetTasksRequest) GetN() int32 {
+func (x *GetTasksRequest) GetMaxN() uint32 {
 	if x != nil {
-		return x.N
+		return x.MaxN
 	}
 	return 0
+}
+
+type RetrievedTask struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Key     string `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	Content []byte `protobuf:"bytes,2,opt,name=content,proto3" json:"content,omitempty"`
+}
+
+func (x *RetrievedTask) Reset() {
+	*x = RetrievedTask{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_antri_proto_msgTypes[5]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *RetrievedTask) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RetrievedTask) ProtoMessage() {}
+
+func (x *RetrievedTask) ProtoReflect() protoreflect.Message {
+	mi := &file_antri_proto_msgTypes[5]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RetrievedTask.ProtoReflect.Descriptor instead.
+func (*RetrievedTask) Descriptor() ([]byte, []int) {
+	return file_antri_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *RetrievedTask) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+func (x *RetrievedTask) GetContent() []byte {
+	if x != nil {
+		return x.Content
+	}
+	return nil
 }
 
 type GetTasksResponse struct {
@@ -218,13 +328,13 @@ type GetTasksResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Tasks []*GetTasksResponse_Task `protobuf:"bytes,1,rep,name=tasks,proto3" json:"tasks,omitempty"`
+	Tasks []*RetrievedTask `protobuf:"bytes,1,rep,name=tasks,proto3" json:"tasks,omitempty"`
 }
 
 func (x *GetTasksResponse) Reset() {
 	*x = GetTasksResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_antri_proto_msgTypes[4]
+		mi := &file_antri_proto_msgTypes[6]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -237,7 +347,7 @@ func (x *GetTasksResponse) String() string {
 func (*GetTasksResponse) ProtoMessage() {}
 
 func (x *GetTasksResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_antri_proto_msgTypes[4]
+	mi := &file_antri_proto_msgTypes[6]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -250,67 +360,12 @@ func (x *GetTasksResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTasksResponse.ProtoReflect.Descriptor instead.
 func (*GetTasksResponse) Descriptor() ([]byte, []int) {
-	return file_antri_proto_rawDescGZIP(), []int{4}
+	return file_antri_proto_rawDescGZIP(), []int{6}
 }
 
-func (x *GetTasksResponse) GetTasks() []*GetTasksResponse_Task {
+func (x *GetTasksResponse) GetTasks() []*RetrievedTask {
 	if x != nil {
 		return x.Tasks
-	}
-	return nil
-}
-
-type GetTasksResponse_Task struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-
-	Key     []byte `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
-	Content []byte `protobuf:"bytes,2,opt,name=content,proto3" json:"content,omitempty"`
-}
-
-func (x *GetTasksResponse_Task) Reset() {
-	*x = GetTasksResponse_Task{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_antri_proto_msgTypes[5]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
-}
-
-func (x *GetTasksResponse_Task) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*GetTasksResponse_Task) ProtoMessage() {}
-
-func (x *GetTasksResponse_Task) ProtoReflect() protoreflect.Message {
-	mi := &file_antri_proto_msgTypes[5]
-	if protoimpl.UnsafeEnabled && x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use GetTasksResponse_Task.ProtoReflect.Descriptor instead.
-func (*GetTasksResponse_Task) Descriptor() ([]byte, []int) {
-	return file_antri_proto_rawDescGZIP(), []int{4, 0}
-}
-
-func (x *GetTasksResponse_Task) GetKey() []byte {
-	if x != nil {
-		return x.Key
-	}
-	return nil
-}
-
-func (x *GetTasksResponse_Task) GetContent() []byte {
-	if x != nil {
-		return x.Content
 	}
 	return nil
 }
@@ -318,35 +373,41 @@ func (x *GetTasksResponse_Task) GetContent() []byte {
 var File_antri_proto protoreflect.FileDescriptor
 
 var file_antri_proto_rawDesc = []byte{
-	0x0a, 0x0b, 0x61, 0x6e, 0x74, 0x72, 0x69, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x22, 0x2d, 0x0a,
-	0x0f, 0x41, 0x64, 0x64, 0x54, 0x61, 0x73, 0x6b, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74,
-	0x12, 0x1a, 0x0a, 0x08, 0x63, 0x6f, 0x6e, 0x74, 0x65, 0x6e, 0x74, 0x73, 0x18, 0x01, 0x20, 0x03,
-	0x28, 0x0c, 0x52, 0x08, 0x63, 0x6f, 0x6e, 0x74, 0x65, 0x6e, 0x74, 0x73, 0x22, 0x28, 0x0a, 0x12,
-	0x43, 0x6f, 0x6d, 0x6d, 0x69, 0x74, 0x54, 0x61, 0x73, 0x6b, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65,
-	0x73, 0x74, 0x12, 0x12, 0x0a, 0x04, 0x6b, 0x65, 0x79, 0x73, 0x18, 0x01, 0x20, 0x03, 0x28, 0x0c,
-	0x52, 0x04, 0x6b, 0x65, 0x79, 0x73, 0x22, 0x24, 0x0a, 0x0a, 0x4f, 0x6b, 0x52, 0x65, 0x73, 0x70,
-	0x6f, 0x6e, 0x73, 0x65, 0x12, 0x16, 0x0a, 0x06, 0x72, 0x65, 0x73, 0x75, 0x6c, 0x74, 0x18, 0x01,
-	0x20, 0x01, 0x28, 0x08, 0x52, 0x06, 0x72, 0x65, 0x73, 0x75, 0x6c, 0x74, 0x22, 0x1f, 0x0a, 0x0f,
-	0x47, 0x65, 0x74, 0x54, 0x61, 0x73, 0x6b, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12,
-	0x0c, 0x0a, 0x01, 0x6e, 0x18, 0x01, 0x20, 0x01, 0x28, 0x05, 0x52, 0x01, 0x6e, 0x22, 0x74, 0x0a,
-	0x10, 0x47, 0x65, 0x74, 0x54, 0x61, 0x73, 0x6b, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73,
-	0x65, 0x12, 0x2c, 0x0a, 0x05, 0x74, 0x61, 0x73, 0x6b, 0x73, 0x18, 0x01, 0x20, 0x03, 0x28, 0x0b,
-	0x32, 0x16, 0x2e, 0x47, 0x65, 0x74, 0x54, 0x61, 0x73, 0x6b, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f,
-	0x6e, 0x73, 0x65, 0x2e, 0x54, 0x61, 0x73, 0x6b, 0x52, 0x05, 0x74, 0x61, 0x73, 0x6b, 0x73, 0x1a,
-	0x32, 0x0a, 0x04, 0x54, 0x61, 0x73, 0x6b, 0x12, 0x10, 0x0a, 0x03, 0x6b, 0x65, 0x79, 0x18, 0x01,
-	0x20, 0x01, 0x28, 0x0c, 0x52, 0x03, 0x6b, 0x65, 0x79, 0x12, 0x18, 0x0a, 0x07, 0x63, 0x6f, 0x6e,
-	0x74, 0x65, 0x6e, 0x74, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x07, 0x63, 0x6f, 0x6e, 0x74,
-	0x65, 0x6e, 0x74, 0x32, 0x90, 0x01, 0x0a, 0x05, 0x41, 0x6e, 0x74, 0x72, 0x69, 0x12, 0x29, 0x0a,
-	0x08, 0x41, 0x64, 0x64, 0x54, 0x61, 0x73, 0x6b, 0x73, 0x12, 0x10, 0x2e, 0x41, 0x64, 0x64, 0x54,
-	0x61, 0x73, 0x6b, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x0b, 0x2e, 0x4f, 0x6b,
-	0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x2f, 0x0a, 0x08, 0x47, 0x65, 0x74, 0x54,
-	0x61, 0x73, 0x6b, 0x73, 0x12, 0x10, 0x2e, 0x47, 0x65, 0x74, 0x54, 0x61, 0x73, 0x6b, 0x73, 0x52,
-	0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x11, 0x2e, 0x47, 0x65, 0x74, 0x54, 0x61, 0x73, 0x6b,
-	0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x2b, 0x0a, 0x07, 0x41, 0x64, 0x64,
-	0x54, 0x61, 0x73, 0x6b, 0x12, 0x13, 0x2e, 0x43, 0x6f, 0x6d, 0x6d, 0x69, 0x74, 0x54, 0x61, 0x73,
-	0x6b, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x0b, 0x2e, 0x4f, 0x6b, 0x52, 0x65,
-	0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x42, 0x09, 0x5a, 0x07, 0x2e, 0x3b, 0x70, 0x72, 0x6f, 0x74,
-	0x6f, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
+	0x0a, 0x0b, 0x61, 0x6e, 0x74, 0x72, 0x69, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x22, 0x4b, 0x0a,
+	0x07, 0x4e, 0x65, 0x77, 0x54, 0x61, 0x73, 0x6b, 0x12, 0x18, 0x0a, 0x07, 0x63, 0x6f, 0x6e, 0x74,
+	0x65, 0x6e, 0x74, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x07, 0x63, 0x6f, 0x6e, 0x74, 0x65,
+	0x6e, 0x74, 0x12, 0x26, 0x0a, 0x0e, 0x73, 0x65, 0x63, 0x6f, 0x6e, 0x64, 0x73, 0x46, 0x72, 0x6f,
+	0x6d, 0x4e, 0x6f, 0x77, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0d, 0x52, 0x0e, 0x73, 0x65, 0x63, 0x6f,
+	0x6e, 0x64, 0x73, 0x46, 0x72, 0x6f, 0x6d, 0x4e, 0x6f, 0x77, 0x22, 0x31, 0x0a, 0x0f, 0x41, 0x64,
+	0x64, 0x54, 0x61, 0x73, 0x6b, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x1e, 0x0a,
+	0x05, 0x74, 0x61, 0x73, 0x6b, 0x73, 0x18, 0x01, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x08, 0x2e, 0x4e,
+	0x65, 0x77, 0x54, 0x61, 0x73, 0x6b, 0x52, 0x05, 0x74, 0x61, 0x73, 0x6b, 0x73, 0x22, 0x28, 0x0a,
+	0x12, 0x43, 0x6f, 0x6d, 0x6d, 0x69, 0x74, 0x54, 0x61, 0x73, 0x6b, 0x73, 0x52, 0x65, 0x71, 0x75,
+	0x65, 0x73, 0x74, 0x12, 0x12, 0x0a, 0x04, 0x6b, 0x65, 0x79, 0x73, 0x18, 0x01, 0x20, 0x03, 0x28,
+	0x09, 0x52, 0x04, 0x6b, 0x65, 0x79, 0x73, 0x22, 0x24, 0x0a, 0x0a, 0x4f, 0x6b, 0x52, 0x65, 0x73,
+	0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x16, 0x0a, 0x06, 0x72, 0x65, 0x73, 0x75, 0x6c, 0x74, 0x18,
+	0x01, 0x20, 0x01, 0x28, 0x08, 0x52, 0x06, 0x72, 0x65, 0x73, 0x75, 0x6c, 0x74, 0x22, 0x25, 0x0a,
+	0x0f, 0x47, 0x65, 0x74, 0x54, 0x61, 0x73, 0x6b, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74,
+	0x12, 0x12, 0x0a, 0x04, 0x6d, 0x61, 0x78, 0x4e, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0d, 0x52, 0x04,
+	0x6d, 0x61, 0x78, 0x4e, 0x22, 0x3b, 0x0a, 0x0d, 0x52, 0x65, 0x74, 0x72, 0x69, 0x65, 0x76, 0x65,
+	0x64, 0x54, 0x61, 0x73, 0x6b, 0x12, 0x10, 0x0a, 0x03, 0x6b, 0x65, 0x79, 0x18, 0x01, 0x20, 0x01,
+	0x28, 0x09, 0x52, 0x03, 0x6b, 0x65, 0x79, 0x12, 0x18, 0x0a, 0x07, 0x63, 0x6f, 0x6e, 0x74, 0x65,
+	0x6e, 0x74, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x07, 0x63, 0x6f, 0x6e, 0x74, 0x65, 0x6e,
+	0x74, 0x22, 0x38, 0x0a, 0x10, 0x47, 0x65, 0x74, 0x54, 0x61, 0x73, 0x6b, 0x73, 0x52, 0x65, 0x73,
+	0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x24, 0x0a, 0x05, 0x74, 0x61, 0x73, 0x6b, 0x73, 0x18, 0x01,
+	0x20, 0x03, 0x28, 0x0b, 0x32, 0x0e, 0x2e, 0x52, 0x65, 0x74, 0x72, 0x69, 0x65, 0x76, 0x65, 0x64,
+	0x54, 0x61, 0x73, 0x6b, 0x52, 0x05, 0x74, 0x61, 0x73, 0x6b, 0x73, 0x32, 0x94, 0x01, 0x0a, 0x05,
+	0x41, 0x6e, 0x74, 0x72, 0x69, 0x12, 0x29, 0x0a, 0x08, 0x41, 0x64, 0x64, 0x54, 0x61, 0x73, 0x6b,
+	0x73, 0x12, 0x10, 0x2e, 0x41, 0x64, 0x64, 0x54, 0x61, 0x73, 0x6b, 0x73, 0x52, 0x65, 0x71, 0x75,
+	0x65, 0x73, 0x74, 0x1a, 0x0b, 0x2e, 0x4f, 0x6b, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65,
+	0x12, 0x2f, 0x0a, 0x08, 0x47, 0x65, 0x74, 0x54, 0x61, 0x73, 0x6b, 0x73, 0x12, 0x10, 0x2e, 0x47,
+	0x65, 0x74, 0x54, 0x61, 0x73, 0x6b, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x11,
+	0x2e, 0x47, 0x65, 0x74, 0x54, 0x61, 0x73, 0x6b, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73,
+	0x65, 0x12, 0x2f, 0x0a, 0x0b, 0x43, 0x6f, 0x6d, 0x6d, 0x69, 0x74, 0x54, 0x61, 0x73, 0x6b, 0x73,
+	0x12, 0x13, 0x2e, 0x43, 0x6f, 0x6d, 0x6d, 0x69, 0x74, 0x54, 0x61, 0x73, 0x6b, 0x73, 0x52, 0x65,
+	0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x0b, 0x2e, 0x4f, 0x6b, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e,
+	0x73, 0x65, 0x42, 0x09, 0x5a, 0x07, 0x2e, 0x3b, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62, 0x06, 0x70,
+	0x72, 0x6f, 0x74, 0x6f, 0x33,
 }
 
 var (
@@ -361,28 +422,30 @@ func file_antri_proto_rawDescGZIP() []byte {
 	return file_antri_proto_rawDescData
 }
 
-var file_antri_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_antri_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_antri_proto_goTypes = []interface{}{
-	(*AddTasksRequest)(nil),       // 0: AddTasksRequest
-	(*CommitTasksRequest)(nil),    // 1: CommitTasksRequest
-	(*OkResponse)(nil),            // 2: OkResponse
-	(*GetTasksRequest)(nil),       // 3: GetTasksRequest
-	(*GetTasksResponse)(nil),      // 4: GetTasksResponse
-	(*GetTasksResponse_Task)(nil), // 5: GetTasksResponse.Task
+	(*NewTask)(nil),            // 0: NewTask
+	(*AddTasksRequest)(nil),    // 1: AddTasksRequest
+	(*CommitTasksRequest)(nil), // 2: CommitTasksRequest
+	(*OkResponse)(nil),         // 3: OkResponse
+	(*GetTasksRequest)(nil),    // 4: GetTasksRequest
+	(*RetrievedTask)(nil),      // 5: RetrievedTask
+	(*GetTasksResponse)(nil),   // 6: GetTasksResponse
 }
 var file_antri_proto_depIdxs = []int32{
-	5, // 0: GetTasksResponse.tasks:type_name -> GetTasksResponse.Task
-	0, // 1: Antri.AddTasks:input_type -> AddTasksRequest
-	3, // 2: Antri.GetTasks:input_type -> GetTasksRequest
-	1, // 3: Antri.AddTask:input_type -> CommitTasksRequest
-	2, // 4: Antri.AddTasks:output_type -> OkResponse
-	4, // 5: Antri.GetTasks:output_type -> GetTasksResponse
-	2, // 6: Antri.AddTask:output_type -> OkResponse
-	4, // [4:7] is the sub-list for method output_type
-	1, // [1:4] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	0, // 0: AddTasksRequest.tasks:type_name -> NewTask
+	5, // 1: GetTasksResponse.tasks:type_name -> RetrievedTask
+	1, // 2: Antri.AddTasks:input_type -> AddTasksRequest
+	4, // 3: Antri.GetTasks:input_type -> GetTasksRequest
+	2, // 4: Antri.CommitTasks:input_type -> CommitTasksRequest
+	3, // 5: Antri.AddTasks:output_type -> OkResponse
+	6, // 6: Antri.GetTasks:output_type -> GetTasksResponse
+	3, // 7: Antri.CommitTasks:output_type -> OkResponse
+	5, // [5:8] is the sub-list for method output_type
+	2, // [2:5] is the sub-list for method input_type
+	2, // [2:2] is the sub-list for extension type_name
+	2, // [2:2] is the sub-list for extension extendee
+	0, // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_antri_proto_init() }
@@ -392,7 +455,7 @@ func file_antri_proto_init() {
 	}
 	if !protoimpl.UnsafeEnabled {
 		file_antri_proto_msgTypes[0].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*AddTasksRequest); i {
+			switch v := v.(*NewTask); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -404,7 +467,7 @@ func file_antri_proto_init() {
 			}
 		}
 		file_antri_proto_msgTypes[1].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*CommitTasksRequest); i {
+			switch v := v.(*AddTasksRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -416,7 +479,7 @@ func file_antri_proto_init() {
 			}
 		}
 		file_antri_proto_msgTypes[2].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*OkResponse); i {
+			switch v := v.(*CommitTasksRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -428,7 +491,7 @@ func file_antri_proto_init() {
 			}
 		}
 		file_antri_proto_msgTypes[3].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*GetTasksRequest); i {
+			switch v := v.(*OkResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -440,7 +503,7 @@ func file_antri_proto_init() {
 			}
 		}
 		file_antri_proto_msgTypes[4].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*GetTasksResponse); i {
+			switch v := v.(*GetTasksRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -452,7 +515,19 @@ func file_antri_proto_init() {
 			}
 		}
 		file_antri_proto_msgTypes[5].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*GetTasksResponse_Task); i {
+			switch v := v.(*RetrievedTask); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_antri_proto_msgTypes[6].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*GetTasksResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -470,7 +545,7 @@ func file_antri_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_antri_proto_rawDesc,
 			NumEnums:      0,
-			NumMessages:   6,
+			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

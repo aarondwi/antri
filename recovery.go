@@ -200,7 +200,7 @@ func ReadLog(r io.Reader) (MsgWrapper, error) {
 			item: ds.PqItem{
 				ScheduledAt: int64(scheduledAtRead),
 				Key:         string(keyBytes),
-				Value:       string(valueBytes),
+				Value:       valueBytes,
 				Retries:     int16(numOfRetriesRead)},
 		}, nil
 	} else if indicator == 1 {

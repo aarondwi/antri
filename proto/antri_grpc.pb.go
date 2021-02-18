@@ -20,7 +20,7 @@ const _ = grpc.SupportPackageIsVersion7
 type AntriClient interface {
 	AddTasks(ctx context.Context, in *AddTasksRequest, opts ...grpc.CallOption) (*OkResponse, error)
 	GetTasks(ctx context.Context, in *GetTasksRequest, opts ...grpc.CallOption) (*GetTasksResponse, error)
-	AddTask(ctx context.Context, in *CommitTasksRequest, opts ...grpc.CallOption) (*OkResponse, error)
+	CommitTasks(ctx context.Context, in *CommitTasksRequest, opts ...grpc.CallOption) (*OkResponse, error)
 }
 
 type antriClient struct {
@@ -49,9 +49,9 @@ func (c *antriClient) GetTasks(ctx context.Context, in *GetTasksRequest, opts ..
 	return out, nil
 }
 
-func (c *antriClient) AddTask(ctx context.Context, in *CommitTasksRequest, opts ...grpc.CallOption) (*OkResponse, error) {
+func (c *antriClient) CommitTasks(ctx context.Context, in *CommitTasksRequest, opts ...grpc.CallOption) (*OkResponse, error) {
 	out := new(OkResponse)
-	err := c.cc.Invoke(ctx, "/Antri/AddTask", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/Antri/CommitTasks", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -64,7 +64,7 @@ func (c *antriClient) AddTask(ctx context.Context, in *CommitTasksRequest, opts 
 type AntriServer interface {
 	AddTasks(context.Context, *AddTasksRequest) (*OkResponse, error)
 	GetTasks(context.Context, *GetTasksRequest) (*GetTasksResponse, error)
-	AddTask(context.Context, *CommitTasksRequest) (*OkResponse, error)
+	CommitTasks(context.Context, *CommitTasksRequest) (*OkResponse, error)
 	mustEmbedUnimplementedAntriServer()
 }
 
@@ -78,8 +78,8 @@ func (UnimplementedAntriServer) AddTasks(context.Context, *AddTasksRequest) (*Ok
 func (UnimplementedAntriServer) GetTasks(context.Context, *GetTasksRequest) (*GetTasksResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetTasks not implemented")
 }
-func (UnimplementedAntriServer) AddTask(context.Context, *CommitTasksRequest) (*OkResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method AddTask not implemented")
+func (UnimplementedAntriServer) CommitTasks(context.Context, *CommitTasksRequest) (*OkResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CommitTasks not implemented")
 }
 func (UnimplementedAntriServer) mustEmbedUnimplementedAntriServer() {}
 
@@ -130,20 +130,20 @@ func _Antri_GetTasks_Handler(srv interface{}, ctx context.Context, dec func(inte
 	return interceptor(ctx, in, info, handler)
 }
 
-func _Antri_AddTask_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _Antri_CommitTasks_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(CommitTasksRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(AntriServer).AddTask(ctx, in)
+		return srv.(AntriServer).CommitTasks(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/Antri/AddTask",
+		FullMethod: "/Antri/CommitTasks",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AntriServer).AddTask(ctx, req.(*CommitTasksRequest))
+		return srv.(AntriServer).CommitTasks(ctx, req.(*CommitTasksRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -164,8 +164,8 @@ var Antri_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _Antri_GetTasks_Handler,
 		},
 		{
-			MethodName: "AddTask",
-			Handler:    _Antri_AddTask_Handler,
+			MethodName: "CommitTasks",
+			Handler:    _Antri_CommitTasks_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

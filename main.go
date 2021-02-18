@@ -4,28 +4,26 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
-
-	"github.com/valyala/fasthttp"
 )
 
 func main() {
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 
-	as, _ := NewAntriServer(1_000_000, 30, 300)
-	server := fasthttp.Server{
-		Handler:     NewAntriServerRouter(as).Handler,
-		Concurrency: 256,
-	}
+	as, _ := New(1_000_000, 30, 300)
 
+	wg := sync.WaitGroup{}
+	wg.Add(1)
 	go func() {
 		<-sigs
-		log.Println("Shutting Down")
+		log.Println("Shutting Down...")
 		as.Close()
 		log.Println("Done")
-		os.Exit(0)
+		wg.Done()
 	}()
 
-	log.Fatal(server.ListenAndServe("0.0.0.0:8080"))
+	as.Run("127.0.0.1:15026")
+	wg.Wait()
 }
