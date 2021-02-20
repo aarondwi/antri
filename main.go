@@ -2,10 +2,13 @@ package main
 
 import (
 	"log"
+	"net"
 	"os"
 	"os/signal"
 	"sync"
 	"syscall"
+
+	"google.golang.org/grpc"
 )
 
 func main() {
@@ -24,6 +27,13 @@ func main() {
 		wg.Done()
 	}()
 
-	as.Run("127.0.0.1:15026")
+	address := "127.0.0.1:15026"
+	lis, err := net.Listen("tcp", address)
+	if err != nil {
+		panic(err)
+	}
+	gs := grpc.NewServer()
+	go as.Run(gs, lis)
+
 	wg.Wait()
 }

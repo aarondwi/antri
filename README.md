@@ -1,6 +1,5 @@
 # antri
-In-memory, asynchronous task queue implementation.
-Primarily intended for learning to write a persistent message queue.
+A scheduled task queue implementation. Primarily intended for learning to write a persistent message queue.
 
 Trivia
 ------------------------------------------------------
@@ -40,7 +39,8 @@ Possible optimization
 
 2. reduce lock contention. Wwhat has come to mind:
 
-    * change pq and sl to use lock-free data structure
-    * try simple array as internal DS + a b-tree/skiplist for index order, to reduce the number of swapping (also removes all usage of orderedmap)
-    * Use multiple internal queue (but because pull-model, comes problem to decide how to get from those)
-    * do batching on add/get/commit
+    * change internal `pq`, `om` and `sl` to use lock-free data structure
+    * try array/byte buffer as internal DS + a b-tree/skiplist for index order, to reduce the number of swapping (also removes all usage of orderedmap)
+    * Use multiple internal queue (but because pull-model, comes problem to decide how to get from those, additional queue?)
+
+3. Do not make custom format internally, hold bytebuffer (same representation as disk, no need for more allocation, etc), and also directly accept the protobuf format internally.

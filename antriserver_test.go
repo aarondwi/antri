@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"log"
+	"net"
 	"os"
 	"sync"
 	"testing"
@@ -37,7 +38,13 @@ func TestAddRetrieveCommitMultipleTask(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	go as.Run(addr)
+
+	lis, err := net.Listen("tcp", addr)
+	if err != nil {
+		panic(err)
+	}
+	gs := grpc.NewServer()
+	go as.Run(gs, lis)
 
 	conn, err := grpc.Dial(addr, grpc.WithInsecure())
 	if err != nil {
@@ -121,7 +128,13 @@ func TestAddRetrieveTimeoutReretrieveCommit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	go as.Run(addr)
+
+	lis, err := net.Listen("tcp", addr)
+	if err != nil {
+		panic(err)
+	}
+	gs := grpc.NewServer()
+	go as.Run(gs, lis)
 
 	conn, err := grpc.Dial(addr, grpc.WithInsecure())
 	if err != nil {
@@ -185,7 +198,13 @@ func TestValueNotProvided(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	go as.Run(addr)
+
+	lis, err := net.Listen("tcp", addr)
+	if err != nil {
+		panic(err)
+	}
+	gs := grpc.NewServer()
+	go as.Run(gs, lis)
 
 	conn, err := grpc.Dial(addr, grpc.WithInsecure())
 	if err != nil {
@@ -221,7 +240,13 @@ func TestLockWaitFlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	go as.Run(addr)
+
+	lis, err := net.Listen("tcp", addr)
+	if err != nil {
+		panic(err)
+	}
+	gs := grpc.NewServer()
+	go as.Run(gs, lis)
 
 	conn, err := grpc.Dial(addr, grpc.WithInsecure())
 	if err != nil {

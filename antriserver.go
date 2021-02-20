@@ -651,13 +651,10 @@ func (as *AntriServer) Close() {
 // Run AntriServer
 //
 // Returns when grpcServer returns
-func (as *AntriServer) Run(address string) error {
-	lis, err := net.Listen("tcp", address)
-	if err != nil {
-		return err
-	}
-
-	as.gs = grpc.NewServer()
+func (as *AntriServer) Run(
+	gs *grpc.Server,
+	lis net.Listener) error {
+	as.gs = gs
 	proto.RegisterAntriServer(as.gs, as)
 	return as.gs.Serve(lis)
 }
