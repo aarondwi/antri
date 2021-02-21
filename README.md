@@ -37,7 +37,7 @@ Possible optimization
 
 1. implement group fsync (based on time and/or number and/or size)
 
-2. reduce lock contention. Wwhat has come to mind:
+2. reduce lock contention. What has come to mind:
 
     * change internal `pq`, `om` and `sl` to use lock-free data structure
     * try array/byte buffer as internal DS + a b-tree/skiplist for index order, to reduce the number of swapping (also removes all usage of orderedmap)

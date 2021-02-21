@@ -213,11 +213,49 @@ func TestValueNotProvided(t *testing.T) {
 	defer conn.Close()
 	c := proto.NewAntriClient(conn)
 
-	tasks := make([]*proto.NewTask, 5)
+	tasks := make([]*proto.NewTask, 0)
 	tasks = append(tasks, &proto.NewTask{
 		Content:        []byte(""),
 		SecondsFromNow: 0,
 	})
+
+	_, err = c.AddTasks(context.Background(), &proto.AddTasksRequest{
+		Tasks: tasks,
+	})
+	if err == nil {
+		log.Fatalf("AddTasks should return error because empty Content, but it is not: %v", err)
+	}
+
+	as.Close()
+	time.Sleep(1 * time.Second) // give time for the system to shutdown
+}
+
+func TestValueProvidedIsNil(t *testing.T) {
+	err := os.RemoveAll("data")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	as, err := New(1, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	lis, err := net.Listen("tcp", addr)
+	if err != nil {
+		panic(err)
+	}
+	gs := grpc.NewServer()
+	go as.Run(gs, lis)
+
+	conn, err := grpc.Dial(addr, grpc.WithInsecure())
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer conn.Close()
+	c := proto.NewAntriClient(conn)
+
+	tasks := []*proto.NewTask{nil}
 
 	_, err = c.AddTasks(context.Background(), &proto.AddTasksRequest{
 		Tasks: tasks,

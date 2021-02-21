@@ -22,6 +22,7 @@ import (
 )
 
 var letterBytes = []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+var l = len(letterBytes)
 var fileFlag = os.O_APPEND | os.O_CREATE | os.O_RDWR
 var fileMode = os.FileMode(0644)
 var dataDir = "data/"
@@ -29,7 +30,6 @@ var walFilenameFormat = dataDir + "wal-%016d"
 
 func randStringBytes(n int) []byte {
 	b := make([]byte, n)
-	l := len(letterBytes)
 	for i := range b {
 		b[i] = letterBytes[rand.Intn(l)]
 	}
@@ -183,8 +183,12 @@ func (as *AntriServer) addNewMessageToInMemoryDS(items []*ds.PqItem) {
 var addTasksSuccess = &proto.AddTasksResponse{Result: true}
 
 // ErrContentShouldNotBeEmpty is returned when
-// at least one of proto.AddTasksRequest contents is null
+// at least one of proto.AddTasksRequest contents is nil
 var ErrContentShouldNotBeEmpty = errors.New("Content of tasks should be provided")
+
+// ErrTaskIsNil is returned when
+// at least one of proto.AddTasksRequest.Tasks is nil
+var ErrTaskIsNil = errors.New("Content of tasks should be provided")
 
 // AddTasks save multiple tasks to wal
 // and add it to in-memory ds
@@ -193,6 +197,9 @@ func (as *AntriServer) AddTasks(
 	in *proto.AddTasksRequest) (*proto.AddTasksResponse, error) {
 
 	for _, t := range in.Tasks {
+		if t == nil {
+			return nil, ErrTaskIsNil
+		}
 		if len(t.Content) == 0 {
 			return nil, ErrContentShouldNotBeEmpty
 		}
@@ -225,10 +232,9 @@ func (as *AntriServer) addToInflightStorer(items []*ds.PqItem) {
 
 // get next message that has passed its scheduled time
 func (as *AntriServer) getReadyToBeRetrievedMessage(N uint32) []*ds.PqItem {
-	var res []*ds.PqItem
-
 	// lock/unlock manually
 	// we dont want unlock to wait for fmt
+	res := make([]*ds.PqItem, 0, N)
 	as.mutex.Lock()
 	for {
 		for as.pq.HeapSize() == 0 {
@@ -605,6 +611,9 @@ func (as *AntriServer) snapshotter() {
 // taskTimeoutWatchdog watches all the in-flight task
 // to guarantee liveness of the data
 func (as *AntriServer) taskTimeoutWatchdog() {
+	// allocate once
+	itemArr := make([]*ds.PqItem, 0, 10)
+
 	// cause we always append to back
 	// we can be sure that this array is sorted on expireOn
 	ticker := time.NewTicker(500 * time.Millisecond)
@@ -613,7 +622,6 @@ func (as *AntriServer) taskTimeoutWatchdog() {
 		case <-as.runningCtx.Done():
 			return
 		case <-ticker.C:
-			itemArr := make([]*ds.PqItem, 0, 10)
 
 			// remove from inflight
 			currentTime := time.Now().Unix()
@@ -621,10 +629,10 @@ func (as *AntriServer) taskTimeoutWatchdog() {
 			for as.inflightRecords.Length() > 0 &&
 				as.inflightRecords.PeekExpire() < currentTime {
 
-				// no need to check the err
-				// undoubtedly gonna get one
-				item, _ := as.inflightRecords.Pop()
-				itemArr = append(itemArr, item)
+				item, ok := as.inflightRecords.Pop()
+				if ok {
+					itemArr = append(itemArr, item)
+				}
 			}
 			as.inflightMutex.Unlock()
 
@@ -633,6 +641,9 @@ func (as *AntriServer) taskTimeoutWatchdog() {
 			}
 			as.writeRetryOccurenceToWal(itemArr)
 			as.addNewMessageToInMemoryDS(itemArr)
+
+			// reset, to reduce allocation
+			itemArr = itemArr[:0]
 		}
 	}
 }
@@ -656,5 +667,6 @@ func (as *AntriServer) Run(
 	lis net.Listener) error {
 	as.gs = gs
 	proto.RegisterAntriServer(as.gs, as)
+	log.Println("Server started")
 	return as.gs.Serve(lis)
 }
