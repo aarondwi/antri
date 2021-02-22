@@ -322,6 +322,7 @@ func (as *AntriServer) CommitTasks(
 	for _, key := range in.Keys {
 		item, ok := as.inflightRecords.Get(key)
 		if ok {
+			as.inflightRecords.Delete(key)
 			committedKeys = append(committedKeys, key)
 			// put first, so can be reused directly
 			pqItemPool.Put(item)

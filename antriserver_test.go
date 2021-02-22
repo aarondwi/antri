@@ -34,7 +34,7 @@ func TestAddRetrieveCommitMultipleTask(t *testing.T) {
 		log.Fatal(err)
 	}
 
-	as, err := New(1, 1)
+	as, err := New(1, 60)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +124,7 @@ func TestAddRetrieveTimeoutReretrieveCommit(t *testing.T) {
 		log.Fatal(err)
 	}
 
-	as, err := New(1, 1)
+	as, err := New(1, 60)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,6 +184,33 @@ func TestAddRetrieveTimeoutReretrieveCommit(t *testing.T) {
 			len(commitResult.Keys))
 	}
 
+	/*
+	 * Committed keys should not be retrieved again
+	 */
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+	ch := make(chan bool)
+	ctx, _ := context.WithDeadline(context.Background(), time.Now().Add(2*time.Second))
+
+	go func() {
+		//trying to receive the message again
+		//
+		// if get tasks ever return, it means the last message is retrieved again
+		// which is wrong
+		c.GetTasks(context.Background(), &proto.GetTasksRequest{MaxN: 1})
+		ch <- false
+	}()
+	go func() {
+		select {
+		case <-ctx.Done():
+			wg.Done()
+			return
+		case <-ch:
+			log.Fatal("Receiving message, although supposedly no messages left")
+		}
+	}()
+	wg.Wait()
+
 	as.Close()
 	time.Sleep(1 * time.Second) // give time for the system to shutdown
 }
@@ -194,7 +221,7 @@ func TestValueNotProvided(t *testing.T) {
 		log.Fatal(err)
 	}
 
-	as, err := New(1, 1)
+	as, err := New(1, 60)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -236,7 +263,7 @@ func TestValueProvidedIsNil(t *testing.T) {
 		log.Fatal(err)
 	}
 
-	as, err := New(1, 1)
+	as, err := New(1, 60)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -274,7 +301,7 @@ func TestLockWaitFlow(t *testing.T) {
 		log.Fatal(err)
 	}
 
-	as, err := New(1, 1)
+	as, err := New(1, 60)
 	if err != nil {
 		t.Fatal(err)
 	}
