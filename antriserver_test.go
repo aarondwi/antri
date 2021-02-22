@@ -98,7 +98,7 @@ func TestAddRetrieveCommitMultipleTask(t *testing.T) {
 			retrievedTasks.Tasks[1].Content, tasks[2].Content)
 	}
 
-	keysToCommit := make([]string, 10)
+	keysToCommit := make([]string, 0, 10)
 	keysToCommit = append(keysToCommit, retrievedTasks.Tasks[0].Key)
 	keysToCommit = append(keysToCommit, retrievedTasks.Tasks[1].Key)
 	keysToCommit = append(keysToCommit, "Non Existent Key")
@@ -173,7 +173,7 @@ func TestAddRetrieveTimeoutReretrieveCommit(t *testing.T) {
 			retrievedTasks.Tasks[0].Key, retrievedTimeoutTasks.Tasks[0].Key)
 	}
 
-	keysToCommit := make([]string, 10)
+	keysToCommit := make([]string, 0, 10)
 	keysToCommit = append(keysToCommit, retrievedTasks.Tasks[0].Key)
 
 	commitResult, err := c.CommitTasks(context.Background(), &proto.CommitTasksRequest{
@@ -215,7 +215,7 @@ func TestAddRetrieveTimeoutReretrieveCommit(t *testing.T) {
 	time.Sleep(1 * time.Second) // give time for the system to shutdown
 }
 
-func TestValueNotProvided(t *testing.T) {
+func TestAddTasksValidation(t *testing.T) {
 	err := os.RemoveAll("data")
 	if err != nil {
 		log.Fatal(err)
@@ -240,12 +240,44 @@ func TestValueNotProvided(t *testing.T) {
 	defer conn.Close()
 	c := proto.NewAntriClient(conn)
 
-	tasks := make([]*proto.NewTask, 0)
-	tasks = append(tasks, &proto.NewTask{
-		Content:        []byte(""),
-		SecondsFromNow: 0,
-	})
+	// Case 1: the request object is nil
+	_, err = c.AddTasks(context.Background(), nil)
+	if err == nil {
+		log.Fatalf("AddTasks should return error because request object is nil, but it is not")
+	}
 
+	// Case 2a: the array is nil
+	_, err = c.AddTasks(context.Background(), &proto.AddTasksRequest{
+		Tasks: nil,
+	})
+	if err == nil {
+		log.Fatalf("AddTasks should return error because the array is nil, but it is not")
+	}
+
+	// Case 2b: the array is empty
+	_, err = c.AddTasks(context.Background(), &proto.AddTasksRequest{
+		Tasks: make([]*proto.NewTask, 0),
+	})
+	if err == nil {
+		log.Fatalf("AddTasks should return error because the array is empty, but it is not")
+	}
+
+	// Case 3: the array has nil object
+	tasks := []*proto.NewTask{nil}
+	_, err = c.AddTasks(context.Background(), &proto.AddTasksRequest{
+		Tasks: tasks,
+	})
+	if err == nil {
+		log.Fatalf("AddTasks should return error because the array has nil object, but it is not")
+	}
+
+	// Case 4: content has zero length
+	tasks = []*proto.NewTask{
+		{
+			Content:        []byte(""),
+			SecondsFromNow: 0,
+		},
+	}
 	_, err = c.AddTasks(context.Background(), &proto.AddTasksRequest{
 		Tasks: tasks,
 	})
@@ -257,7 +289,7 @@ func TestValueNotProvided(t *testing.T) {
 	time.Sleep(1 * time.Second) // give time for the system to shutdown
 }
 
-func TestValueProvidedIsNil(t *testing.T) {
+func TestGetTasksValidation(t *testing.T) {
 	err := os.RemoveAll("data")
 	if err != nil {
 		log.Fatal(err)
@@ -282,13 +314,72 @@ func TestValueProvidedIsNil(t *testing.T) {
 	defer conn.Close()
 	c := proto.NewAntriClient(conn)
 
-	tasks := []*proto.NewTask{nil}
-
-	_, err = c.AddTasks(context.Background(), &proto.AddTasksRequest{
-		Tasks: tasks,
-	})
+	// Case 1: the request object is nil
+	_, err = c.GetTasks(context.Background(), nil)
 	if err == nil {
-		log.Fatalf("AddTasks should return error because empty Content, but it is not")
+		log.Fatalf("GetTasks should return error because request object is nil, but it is not")
+	}
+
+	// Case 2: the MaxN is 0
+	resp, err := c.GetTasks(context.Background(), &proto.GetTasksRequest{MaxN: 0})
+	if err != nil {
+		log.Fatalf("GetTasks should not return error because MaxN is 0, but it is, %v", err)
+	}
+	if len(resp.Tasks) != 0 {
+		log.Fatalf("GetTasks should return 0 tasks if given MaxN 0, but instead we got %d", len(resp.Tasks))
+	}
+
+	as.Close()
+	time.Sleep(1 * time.Second) // give time for the system to shutdown
+}
+
+func TestCommitTasksValidation(t *testing.T) {
+	err := os.RemoveAll("data")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	as, err := New(1, 60)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	lis, err := net.Listen("tcp", addr)
+	if err != nil {
+		panic(err)
+	}
+	gs := grpc.NewServer()
+	go as.Run(gs, lis)
+
+	conn, err := grpc.Dial(addr, grpc.WithInsecure())
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer conn.Close()
+	c := proto.NewAntriClient(conn)
+
+	// Case 1: the request object is nil
+	_, err = c.CommitTasks(context.Background(), nil)
+	if err == nil {
+		log.Fatalf("CommitTasks should return error because request object is nil, but it is not")
+	}
+
+	// Case 2a: Keys is nil array
+	_, err = c.CommitTasks(context.Background(), &proto.CommitTasksRequest{Keys: nil})
+	if err == nil {
+		log.Fatalf("CommitTasks should return error because Keys is nil, but it is not ")
+	}
+
+	// Case 2b: Keys is empty array
+	_, err = c.CommitTasks(context.Background(), &proto.CommitTasksRequest{Keys: make([]string, 0)})
+	if err == nil {
+		log.Fatalf("CommitTasks should return error because Keys is an empty array, but it is not ")
+	}
+
+	// Case 3: Keys has empty string
+	_, err = c.CommitTasks(context.Background(), &proto.CommitTasksRequest{Keys: []string{""}})
+	if err == nil {
+		log.Fatalf("CommitTasks should return error because Keys has an empty string, but it is not ")
 	}
 
 	as.Close()

@@ -186,6 +186,14 @@ var addTasksSuccess = &proto.AddTasksResponse{Result: true}
 // at least one of proto.AddTasksRequest contents is nil
 var ErrContentShouldNotBeEmpty = errors.New("Content of tasks should be provided")
 
+// ErrRequestObjectIsNil is returned when
+// the *main* request object is nil
+var ErrRequestObjectIsNil = errors.New("Request object is nil")
+
+// ErrRequestObjectArrayIsEmptyOrNil is returned when
+// the *main* request object's arrray is nil
+var ErrRequestObjectArrayIsEmptyOrNil = errors.New("Request object's array data is empty or nil")
+
 // ErrTaskIsNil is returned when
 // at least one of proto.AddTasksRequest.Tasks is nil
 var ErrTaskIsNil = errors.New("Content of tasks should be provided")
@@ -196,6 +204,12 @@ func (as *AntriServer) AddTasks(
 	ctx context.Context,
 	in *proto.AddTasksRequest) (*proto.AddTasksResponse, error) {
 
+	if in == nil {
+		return nil, ErrRequestObjectIsNil
+	}
+	if in.Tasks == nil || len(in.Tasks) == 0 {
+		return nil, ErrRequestObjectArrayIsEmptyOrNil
+	}
 	for _, t := range in.Tasks {
 		if t == nil {
 			return nil, ErrTaskIsNil
@@ -273,11 +287,20 @@ func (as *AntriServer) getReadyToBeRetrievedMessage(N uint32) []*ds.PqItem {
 	return res
 }
 
+var getTasksEmpty = &proto.GetTasksResponse{Tasks: make([]*proto.RetrievedTask, 0)}
+
 // GetTasks returns multiple (1..n) tasks
 // from in-memory ds, and for the duration, put it to in-memory map
 func (as *AntriServer) GetTasks(
 	ctx context.Context,
 	in *proto.GetTasksRequest) (*proto.GetTasksResponse, error) {
+
+	if in == nil {
+		return nil, ErrRequestObjectIsNil
+	}
+	if in.MaxN == 0 { // uint32 may return 0
+		return getTasksEmpty, nil
+	}
 
 	res := as.getReadyToBeRetrievedMessage(in.MaxN)
 	as.addToInflightStorer(res)
@@ -307,6 +330,10 @@ func (as *AntriServer) writeCommitKeyToWal(keys []string) {
 	as.walFile.M.Unlock()
 }
 
+// ErrCommitKeyShouldNotBeEmpty is returned when
+// at least one of proto.AddTasksRequest contents is nil
+var ErrCommitKeyShouldNotBeEmpty = errors.New("Content of key should not eb empty")
+
 // CommitTasks checks if the given keys are inflight.
 // If found, it removes the key from the inflightRecords
 //
@@ -316,6 +343,19 @@ func (as *AntriServer) writeCommitKeyToWal(keys []string) {
 func (as *AntriServer) CommitTasks(
 	ctx context.Context,
 	in *proto.CommitTasksRequest) (*proto.CommitTasksResponse, error) {
+
+	if in == nil {
+		return nil, ErrRequestObjectIsNil
+	}
+	if in.Keys == nil || len(in.Keys) == 0 {
+		return nil, ErrRequestObjectArrayIsEmptyOrNil
+	}
+
+	for _, t := range in.Keys {
+		if t == "" {
+			return nil, ErrCommitKeyShouldNotBeEmpty
+		}
+	}
 
 	committedKeys := make([]string, 0, len(in.Keys))
 	as.inflightMutex.Lock()
