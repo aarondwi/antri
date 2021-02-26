@@ -2,12 +2,12 @@
 
 Tools designed to load test `antriserver`, given specific load configurations
 
-## usages
+usages
 ----------------------------------------
 
 see `antribench --help`
 
-## notes
+notes
 ----------------------------------------
 
 1. each goroutine has its own grpc client, to simulate many machines

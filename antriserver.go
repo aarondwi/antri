@@ -26,7 +26,7 @@ var l = len(letterBytes)
 var fileFlag = os.O_APPEND | os.O_CREATE | os.O_RDWR
 var fileMode = os.FileMode(0644)
 var dataDir = "data/"
-var walFilenameFormat = dataDir + "wal-%016d"
+var filenameFormat = dataDir + "wal-%016d"
 
 func randStringBytes(n int) []byte {
 	b := make([]byte, n)
@@ -119,7 +119,7 @@ func New(taskTimeout, checkpointDuration int) (*AntriServer, error) {
 
 	// access to file
 	walMutex := sync.Mutex{}
-	walFile, err := os.OpenFile(fmt.Sprintf(walFilenameFormat, startCounter), fileFlag, fileMode)
+	walFile, err := os.OpenFile(fmt.Sprintf(filenameFormat, startCounter), fileFlag, fileMode)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -144,7 +144,7 @@ func (as *AntriServer) rollWal() {
 		}
 
 		as.walFile.C++
-		as.walFile.F, err = os.OpenFile(fmt.Sprintf(walFilenameFormat, as.walFile.C), fileFlag, fileMode)
+		as.walFile.F, err = os.OpenFile(fmt.Sprintf(filenameFormat, as.walFile.C), fileFlag, fileMode)
 		if err != nil {
 			log.Fatalf("Opening new log file failed with error -> %v", err)
 		}
@@ -307,8 +307,9 @@ func (as *AntriServer) GetTasks(
 	tasks := make([]*proto.RetrievedTask, 0, len(res))
 	for _, r := range res {
 		tasks = append(tasks, &proto.RetrievedTask{
-			Key:     r.Key,
-			Content: r.Value,
+			Key:         r.Key,
+			Content:     r.Value,
+			RetryNumber: int32(r.Retries),
 		})
 	}
 	return &proto.GetTasksResponse{Tasks: tasks}, nil

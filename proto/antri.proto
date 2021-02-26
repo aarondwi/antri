@@ -30,6 +30,7 @@ message GetTasksRequest {
 message RetrievedTask {
   string key = 1;
   bytes content = 2;
+  int32 retryNumber = 3;
 }
 
 message GetTasksResponse {

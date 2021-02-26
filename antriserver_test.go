@@ -172,6 +172,9 @@ func TestAddRetrieveTimeoutReretrieveCommit(t *testing.T) {
 		t.Fatalf("Should be the same key, but instead we got %s and %s",
 			retrievedTasks.Tasks[0].Key, retrievedTimeoutTasks.Tasks[0].Key)
 	}
+	if retrievedTimeoutTasks.Tasks[0].RetryNumber != 1 {
+		t.Fatalf("It should return retry number 1, but instead we got %d", retrievedTimeoutTasks.Tasks[0].RetryNumber)
+	}
 
 	keysToCommit := make([]string, 0, 10)
 	keysToCommit = append(keysToCommit, retrievedTasks.Tasks[0].Key)
