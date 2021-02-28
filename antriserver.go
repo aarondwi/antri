@@ -50,7 +50,7 @@ type AntriServer struct {
 	// internal queue
 	mutex    *sync.Mutex
 	notEmpty *sync.Cond
-	pq       *ds.Pq
+	pq       *ds.PriorityQueue
 
 	// not using sync.Map or equivalent
 	// cause we also want to update the stats
@@ -101,7 +101,7 @@ func New(taskTimeout, checkpointDuration int) (*AntriServer, error) {
 	as := &AntriServer{
 		mutex:              &mutex,
 		notEmpty:           notEmpty,
-		pq:                 ds.NewPq(),
+		pq:                 ds.NewPriorityQueue(),
 		inflightMutex:      &inflightMutex,
 		inflightRecords:    inflightRecords,
 		checkpointDuration: checkpointDuration,

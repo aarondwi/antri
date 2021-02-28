@@ -9,7 +9,7 @@ import (
 )
 
 func TestPq(t *testing.T) {
-	pq := NewPq()
+	pq := NewPriorityQueue()
 
 	absoluteFirstItem := &PqItem{
 		ScheduledAt: time.Now().Unix(),
@@ -88,7 +88,7 @@ func TestPq(t *testing.T) {
 }
 
 func BenchmarkPq(b *testing.B) {
-	pq := NewPq()
+	pq := NewPriorityQueue()
 	pool := sync.Pool{
 		New: func() interface{} { return new(PqItem) },
 	}

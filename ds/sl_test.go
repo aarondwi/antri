@@ -11,7 +11,7 @@ import (
 
 func TestSkipListInsertAndPop(t *testing.T) {
 	rand.Seed(time.Now().UTC().UnixNano())
-	sl := &Sl{}
+	sl := &SkipList{}
 
 	afterTheFirstSec := time.Now().Unix()
 	time.Sleep(1 * time.Second)
@@ -57,7 +57,7 @@ func TestSkipListInsertAndPop(t *testing.T) {
 
 func TestPopEmptySkipList(t *testing.T) {
 	rand.Seed(time.Now().UTC().UnixNano())
-	sl := &Sl{}
+	sl := &SkipList{}
 	result, ok := sl.Pop()
 	if ok {
 		log.Fatalf("Should not be found, but it is, and got %v", result)
@@ -71,7 +71,7 @@ func TestPopEmptySkipList(t *testing.T) {
 
 func TestSkipListDelete(t *testing.T) {
 	rand.Seed(time.Now().UTC().UnixNano())
-	sl := &Sl{}
+	sl := &SkipList{}
 
 	afterTheFirstSec := time.Now().Unix()
 	time.Sleep(1 * time.Second)

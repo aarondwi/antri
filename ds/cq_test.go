@@ -43,9 +43,13 @@ func TestCircularQueue(t *testing.T) {
 	}
 
 	// PHASE 3
+	result := []int64{2, 3, 10, 11, 12}
 	for i := 0; i < 5; i++ {
-		_, ok := cq.Pop()
+		res, ok := cq.Pop()
 		if !ok {
+			t.Fatalf("Phase 3: It should be ok because still has remaining items, but it is not")
+		}
+		if res != result[i] {
 			t.Fatalf("Phase 3: It should be ok because still has remaining items, but it is not")
 		}
 	}

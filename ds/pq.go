@@ -10,19 +10,19 @@ type PqItem struct {
 	Retries     int16
 }
 
-// Pq is our main priority queue implementation
+// PriorityQueue is our main priority queue implementation
 // the sort order is determined by ScheduledAt
 // with smaller value returned earlier
 //
 // This implementation is NOT thread-safe
-type Pq struct {
+type PriorityQueue struct {
 	heapArray []*PqItem
 	size      int
 }
 
-// NewPq setups our priorityqueue with the config
-func NewPq() *Pq {
-	maxheap := &Pq{
+// NewPriorityQueue setups our priorityqueue with the config
+func NewPriorityQueue() *PriorityQueue {
+	maxheap := &PriorityQueue{
 		heapArray: []*PqItem{},
 		size:      0,
 	}
@@ -30,23 +30,23 @@ func NewPq() *Pq {
 }
 
 // HeapSize returns our priorityqueue size
-func (m *Pq) HeapSize() int {
+func (m *PriorityQueue) HeapSize() int {
 	return m.size
 }
 
-func (m *Pq) leaf(index int) bool {
+func (m *PriorityQueue) leaf(index int) bool {
 	return (index >= (m.size/2) && index <= m.size)
 }
 
-func (m *Pq) parent(index int) int {
+func (m *PriorityQueue) parent(index int) int {
 	return (index - 1) / 2
 }
 
-func (m *Pq) leftchild(index int) int {
+func (m *PriorityQueue) leftchild(index int) int {
 	return 2*index + 1
 }
 
-func (m *Pq) rightchild(index int) int {
+func (m *PriorityQueue) rightchild(index int) int {
 	return 2*index + 2
 }
 
@@ -55,31 +55,31 @@ func (m *Pq) rightchild(index int) int {
 //
 // in theory, if the later work always scheduled earlier
 // this gonna be bit slower, cause lots of swapping (log2(m.HeapSize()))
-func (m *Pq) Insert(item *PqItem) error {
+func (m *PriorityQueue) Insert(item *PqItem) error {
 	m.heapArray = append(m.heapArray, item)
 	m.size++
 	m.upHeapify(m.size - 1)
 	return nil
 }
 
-func (m *Pq) swap(first, second int) {
+func (m *PriorityQueue) swap(first, second int) {
 	temp := m.heapArray[first]
 	m.heapArray[first] = m.heapArray[second]
 	m.heapArray[second] = temp
 }
 
-func (m *Pq) greater(first, second int) bool {
+func (m *PriorityQueue) greater(first, second int) bool {
 	return m.heapArray[first].ScheduledAt < m.heapArray[second].ScheduledAt
 }
 
-func (m *Pq) upHeapify(index int) {
+func (m *PriorityQueue) upHeapify(index int) {
 	for m.greater(index, m.parent(index)) {
 		m.swap(index, m.parent(index))
 		index = m.parent(index)
 	}
 }
 
-func (m *Pq) downHeapify(current int) {
+func (m *PriorityQueue) downHeapify(current int) {
 	if m.leaf(current) {
 		return
 	}
@@ -101,7 +101,7 @@ func (m *Pq) downHeapify(current int) {
 
 // Pop returns one item from the priorityqueue
 // and removing it
-func (m *Pq) Pop() *PqItem {
+func (m *PriorityQueue) Pop() *PqItem {
 	top := m.heapArray[0]
 	m.heapArray[0] = m.heapArray[m.size-1]
 	m.heapArray = m.heapArray[:(m.size)-1]
@@ -112,7 +112,7 @@ func (m *Pq) Pop() *PqItem {
 
 // Peek returns one item from the priorityqueue
 // but not removing it
-func (m *Pq) Peek() *PqItem {
+func (m *PriorityQueue) Peek() *PqItem {
 	if m.HeapSize() > 0 {
 		return m.heapArray[0]
 	}

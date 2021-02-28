@@ -20,18 +20,18 @@ type SlItem struct {
 	before []*SlItem
 }
 
-// Sl is our skiplist implementation
+// SkipList is our skiplist implementation
 // This API does not implement batch retrieval
 // rather, more like skiplist-based priority queue
 //
 // This implementation is NOT thread-safe
-type Sl struct {
+type SkipList struct {
 	head *SlItem
 }
 
 // find searches the position of the node just before the scheduledAt
 // used when inserting
-func (sl *Sl) findUntilLevel(key string, targetLevel int) *SlItem {
+func (sl *SkipList) findUntilLevel(key string, targetLevel int) *SlItem {
 	if sl.head == nil {
 		return nil
 	}
@@ -49,13 +49,13 @@ func (sl *Sl) findUntilLevel(key string, targetLevel int) *SlItem {
 }
 
 // find is a wrapper for findUntilLevel 0
-func (sl *Sl) find(key string) *SlItem {
+func (sl *SkipList) find(key string) *SlItem {
 	return sl.findUntilLevel(key, 0)
 }
 
 // Insert our SlItem to the skiplist
 // at the same time, also manage all the pointer
-func (sl *Sl) Insert(key string) {
+func (sl *SkipList) Insert(key string) {
 	newNode := &SlItem{
 		Key:    key,
 		after:  make([]*SlItem, 4),
@@ -106,7 +106,7 @@ func (sl *Sl) Insert(key string) {
 
 // findExact searches the position of the node with the same key and scheduledAt
 // used when deleting
-func (sl *Sl) findExact(key string) *SlItem {
+func (sl *SkipList) findExact(key string) *SlItem {
 	if sl.head == nil {
 		return nil
 	}
@@ -135,7 +135,7 @@ func (sl *Sl) findExact(key string) *SlItem {
 
 // Delete our SlItem to the skiplist
 // at the same time, also manage all the pointer
-func (sl *Sl) Delete(key string) {
+func (sl *SkipList) Delete(key string) {
 	node := sl.findExact(key)
 	if node != nil {
 		if node == sl.head {
@@ -166,7 +166,7 @@ func (sl *Sl) Delete(key string) {
 }
 
 // Pop the earliest item in the skiplist, in our case, the most front
-func (sl *Sl) Pop() (string, bool) {
+func (sl *SkipList) Pop() (string, bool) {
 	if sl.head == nil { // no item
 		return "", false
 	}
