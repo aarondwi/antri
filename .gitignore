@@ -15,10 +15,11 @@
 # Dependency directories (remove the comment below to include it)
 # vendor/
 
-# internal file
+# internal file (test file, generated, etc)
 data/
 *.log
 snapshot
+storage/waltestdir
 
 # for playing around with ab/others
 postfile 

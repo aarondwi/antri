@@ -1,5 +1,5 @@
 # antri
-A scheduled task queue implementation. Primarily intended for learning to write a persistent message queue.
+A fast, durable, task-scheduling queue. This is intended as an exercise, but hopefully can be made into a production ready one.
 
 Trivia
 ------------------------------------------------------
@@ -21,26 +21,14 @@ Features
 -------------------------------------------------------
 
 1. using grpc, easy to create client
-2. individual and/or batch add/get/commit
+2. batch add/get/commit
 3. at least once delivery (with task timeout)
 4. task scheduling/visibility, e.g. how many seconds from commit before the task can be retrieved
-5. durability (via wal, and periodic snapshotting)
+5. durability (via wal, and periodic snapshotting for faster recovery)
 
 Notes
 ------------------------------------------------------
 
-1. Add/Commit Multiple Message is **NOT YET** atomic
-2. **NOT** production ready
-
-Possible optimization
-------------------------------------------------------------------------
-
-1. implement group fsync (based on time and/or number and/or size)
-
-2. reduce lock contention. What has come to mind:
-
-    * change internal `pq`, `om` and `sl` to use lock-free data structure
-    * try array/byte buffer as internal DS + a b-tree/skiplist for index order, to reduce the number of swapping (also removes all usage of orderedmap)
-    * Use multiple internal queue (but because pull-model, comes problem to decide how to get from those, additional queue?)
-
-3. Do not make custom format internally, hold bytebuffer (same representation as disk, no need for more allocation, etc), and also directly accept the protobuf format internally.
+1. **NOT** production ready
+2. There are no supports for topic/subscription. This implementation focus on the internal of each queue. Topic/subscription can easily be implemented on top of it. And anyway, priority and/or scheduled task (imo) don't match with concept of subscription (multiple consumer group).
+3. Following above, multi-tenancy also not implemented (yet). This one gonna be useful for smaller usage which aims to maximize resource usage.
