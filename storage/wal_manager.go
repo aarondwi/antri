@@ -361,7 +361,8 @@ func (w *AntriWalManager) timeLimitCommitter() {
 		// meaning haven't changed since before,
 		// need to commit now to maintain latency for aleady-waiting requests
 		w.mu.Lock()
-		if w.currentBatch.id == batchIDToTrack {
+		if w.currentBatch != nil &&
+			w.currentBatch.id == batchIDToTrack {
 			w.readyToFsync()
 		}
 		w.mu.Unlock()
