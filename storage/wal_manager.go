@@ -18,9 +18,22 @@ import (
 //
 // This implementation allows `record()` call while fsync is on progress.
 // To do that, that means fsync should be outside the lock, but still need reliable
-// way to notify the fsync goroutine. This is done via fsync chan, buffered (4).
+// way to notify the fsync goroutine. This is done via fsync chan, buffered (hardcoded to 4, for now).
 // If chan buffer is full, it is okay to still hold main lock (and block others), as
-// it means the storage layer is not keeping up.
+// it means the storage layer is not keeping up. (My decision, as of the time of writing)
+//
+// This implementation only uses `fsync`, and not `O_[D]SYNC`.
+// While O_SYNC is usually faster, it doesn't work on windows, so
+// writes on windows may not be synced at all.
+// With fsync, both linux variant and windows behave the same,
+// resulting in easy portability :)
+//
+// 2 important behavior not yet implemented (or should it?)
+//
+// 1. fsync on directory after creating file, because filesystem implementation may miss it.
+//
+// 2. Aligned write. Current implementation only write from 1 goroutine, and always wait after that.
+// Currently no case for writing concurrently from many goroutines, or managing the block manually (O_DIRECT)
 type AntriWalManager struct {
 	mu         *sync.Mutex
 	newBatch   *sync.Cond
@@ -448,6 +461,8 @@ func (w *AntriWalManager) Close() {
 	w.newBatch.Broadcast()
 	w.wg.Wait()
 
+	// probably close after fsync is done
+	// so need to do it here
 	if !w.fsyncOnWrite {
 		err := w.f.Sync()
 		if err != nil {

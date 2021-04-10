@@ -353,7 +353,7 @@ func BenchmarkWalManager_SeqFsync_Batch256KB_Buf1KB_Wait(b *testing.B) {
 		WAL_TEST_DIR,
 		64*1024,
 		256*1024,
-		time.Duration(500*time.Microsecond),
+		time.Duration(50*time.Microsecond),
 		true)
 	if err != nil {
 		log.Fatalf("It should not return error, but we got %v", err)
@@ -379,7 +379,7 @@ func BenchmarkWalManager_SeqFsync_Batch256KB_Buf4KB_Wait(b *testing.B) {
 		WAL_TEST_DIR,
 		64*1024,
 		256*1024,
-		time.Duration(500*time.Microsecond),
+		time.Duration(50*time.Microsecond),
 		true)
 	if err != nil {
 		log.Fatalf("It should not return error, but we got %v", err)
@@ -405,7 +405,7 @@ func BenchmarkWalManager_SeqFsync_Batch256KB_Buf8KB_Wait(b *testing.B) {
 		WAL_TEST_DIR,
 		64*1024,
 		256*1024,
-		time.Duration(500*time.Microsecond),
+		time.Duration(50*time.Microsecond),
 		true)
 	if err != nil {
 		log.Fatalf("It should not return error, but we got %v", err)
@@ -431,7 +431,7 @@ func BenchmarkWalManager_SeqFsync_Batch256KB_Buf16KB_Wait(b *testing.B) {
 		WAL_TEST_DIR,
 		64*1024,
 		256*1024,
-		time.Duration(500*time.Microsecond),
+		time.Duration(50*time.Microsecond),
 		true)
 	if err != nil {
 		log.Fatalf("It should not return error, but we got %v", err)
