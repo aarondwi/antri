@@ -20,6 +20,7 @@ See [the code directly](https://github.com/aarondwi/antri/blob/master/antriserve
 Features
 -------------------------------------------------------
 
+0. Targeted to work both on windows and linux only
 1. using grpc, easy to create client
 2. batch add/get/commit
 3. at least once delivery (with task timeout)

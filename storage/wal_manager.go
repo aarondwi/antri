@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"hash/crc32"
 	"io"
-	"log"
 	"os"
 	"sync"
 	"time"
@@ -33,9 +32,7 @@ import (
 // 1. Aligned write (4KB page), to reduce stalls (stable write), while still being safe.
 // Also with O_DIRECT, bypass kernel
 //
-// 2. Partial write (still problematic)
-//
-// 3. Fsync the directory after file creation (need another goroutine, to create file in bg and does this)
+// 2. fsync the directory after file creation (how to do this?)
 type AntriWalManager struct {
 	mu         *sync.Mutex
 	newBatch   *sync.Cond
@@ -83,9 +80,7 @@ func NewWalManager(
 	if err != nil {
 		err = os.Mkdir(dataDir, WAL_FILE_MODE)
 		if err != nil {
-			// no directory, and we can't create new one
-			// abort
-			log.Fatalf("Can't create directory for data, with error %v", err)
+			panic(err)
 		}
 	}
 
@@ -124,15 +119,13 @@ func (w *AntriWalManager) generateFilename(counter uint64) string {
 }
 
 func (w *AntriWalManager) createNewFile(counter uint64) *os.File {
-	// Any error here means we can't safely continue
 	f, err := os.OpenFile(
 		w.generateFilename(counter),
-		WAL_FILE_FLAG,
-		WAL_FILE_MODE)
+		WAL_FILE_FLAG, WAL_FILE_MODE)
 	if err != nil {
 		panic(err)
 	}
-	// pre-allocate the file
+
 	err = f.Truncate(int64(WAL_FILE_SIZE))
 	if err != nil {
 		panic(err)
