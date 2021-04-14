@@ -5,7 +5,6 @@ import (
 	"log"
 	"math/rand"
 	"os"
-	"runtime"
 	"testing"
 	"time"
 )
@@ -467,7 +466,6 @@ func BenchmarkWalManager_Parallel256Fsync_Batch256KB_Buf1KB_Wait(b *testing.B) {
 
 	buf := randStringBytes(1024)
 
-	runtime.GOMAXPROCS(1)
 	b.SetParallelism(256)
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
@@ -497,7 +495,6 @@ func BenchmarkWalManager_Parallel256Fsync_Batch256KB_Buf4KB_Wait(b *testing.B) {
 
 	buf := randStringBytes(4 * 1024)
 
-	runtime.GOMAXPROCS(1)
 	b.SetParallelism(256)
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
@@ -527,7 +524,6 @@ func BenchmarkWalManager_Parallel256Fsync_Batch256KB_Buf8KB_Wait(b *testing.B) {
 
 	buf := randStringBytes(8 * 1024)
 
-	runtime.GOMAXPROCS(1)
 	b.SetParallelism(256)
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
@@ -557,7 +553,6 @@ func BenchmarkWalManager_Parallel256Fsync_Batch256KB_Buf16KB_Wait(b *testing.B) 
 
 	buf := randStringBytes(16 * 1024)
 
-	runtime.GOMAXPROCS(1)
 	b.SetParallelism(256)
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
@@ -587,7 +582,6 @@ func BenchmarkWalManager_Parallel128Fsync_Batch256KB_Buf1KB_Wait(b *testing.B) {
 
 	buf := randStringBytes(1024)
 
-	runtime.GOMAXPROCS(1)
 	b.SetParallelism(128)
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
@@ -617,7 +611,6 @@ func BenchmarkWalManager_Parallel128Fsync_Batch256KB_Buf4KB_Wait(b *testing.B) {
 
 	buf := randStringBytes(4 * 1024)
 
-	runtime.GOMAXPROCS(1)
 	b.SetParallelism(128)
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
@@ -647,7 +640,6 @@ func BenchmarkWalManager_Parallel128Fsync_Batch256KB_Buf8KB_Wait(b *testing.B) {
 
 	buf := randStringBytes(8 * 1024)
 
-	runtime.GOMAXPROCS(1)
 	b.SetParallelism(128)
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
@@ -677,7 +669,6 @@ func BenchmarkWalManager_Parallel128Fsync_Batch256KB_Buf16KB_Wait(b *testing.B) 
 
 	buf := randStringBytes(16 * 1024)
 
-	runtime.GOMAXPROCS(1)
 	b.SetParallelism(128)
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {

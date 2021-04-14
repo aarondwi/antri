@@ -28,12 +28,14 @@ import (
 // With fsync, both linux variant and windows behave the same,
 // resulting in easy portability :)
 //
-// 2 important behavior not yet implemented (or should it?)
+// Important notes (probably need to be implemented at some point):
 //
-// 1. fsync on directory after creating file, because filesystem implementation may miss it.
+// 1. Aligned write (4KB page), to reduce stalls (stable write), while still being safe.
+// Also with O_DIRECT, bypass kernel
 //
-// 2. Aligned write. Current implementation only write from 1 goroutine, and always wait after that.
-// Currently no case for writing concurrently from many goroutines, or managing the block manually (O_DIRECT)
+// 2. Partial write (still problematic)
+//
+// 3. Fsync the directory after file creation (need another goroutine, to create file in bg and does this)
 type AntriWalManager struct {
 	mu         *sync.Mutex
 	newBatch   *sync.Cond
@@ -162,17 +164,14 @@ func (w *AntriWalManager) Run(initialCounter uint64) {
 func (w *AntriWalManager) readyToFsync() {
 	// there may be case where batch is currently nil
 	// but the new data coming is bigger than filesize
-	//
 	// meaning we just need to create a new file
 	if w.currentBatch == nil {
 		w.fsyncChan <- emptyBatchHandle
 		return
 	}
 
-	// normal flow
 	// check whether we need to close it now
-	// cause at most, it can only get w.itemSizeLimit
-	//
+	// cause at most, it can only get w.itemSizeLimit.
 	// the downside is that the file may has unused space (at most, is w.itemSizeLimit)
 	needToCreateNewFile := w.currentFileBufferPos+w.itemSizeLimit > WAL_FILE_SIZE
 	if needToCreateNewFile {
@@ -185,7 +184,6 @@ func (w *AntriWalManager) readyToFsync() {
 }
 
 // Record the given data to the batch, to be handled by committer goroutine
-//
 // The format is:
 //
 // 1. 1 byte `1`, indicating a new data
@@ -204,15 +202,11 @@ func (w *AntriWalManager) Record(data []byte) (RecordHandle, error) {
 		return emptyRecordHandle, ErrDataTooBig
 	}
 
-	// create RecordHandle first
-	// gonna be putting more data into this later on
 	rh := RecordHandle{}
 	checksum := crc32.ChecksumIEEE(data)
 
 	w.mu.Lock()
-
 	select {
-	// if already closed, just return
 	case <-w.ctx.Done():
 		w.mu.Unlock()
 		return emptyRecordHandle, ErrWalManagerClosed
@@ -223,7 +217,6 @@ func (w *AntriWalManager) Record(data []byte) (RecordHandle, error) {
 		w.readyToFsync()
 	}
 
-	// no running batch, create one
 	if w.currentBatch == nil {
 		w.lastID++
 		w.currentBatch = &batchHandle{
@@ -265,18 +258,12 @@ func (w *AntriWalManager) Record(data []byte) (RecordHandle, error) {
 	w.currentBatch.currentPos += totalLength
 	w.currentFileBufferPos += totalLength
 
-	shouldCommitAfterCopy := false
 	if w.currentBatch.currentPos > w.bufferSoftLimit {
 		// already reaching limit, need to fsync soon
 		// to prevent fsync-ing too much data once
-		shouldCommitAfterCopy = true
-	}
-	if shouldCommitAfterCopy {
 		w.readyToFsync()
 	}
-
 	w.mu.Unlock()
-
 	return rh, nil
 }
 
@@ -289,7 +276,6 @@ func (w *AntriWalManager) committer() {
 	var bh *batchHandle
 	for {
 		select {
-		// wait on either of these
 		case <-w.ctx.Done():
 			w.wg.Done()
 			return
@@ -298,11 +284,9 @@ func (w *AntriWalManager) committer() {
 
 		if bh == emptyBatchHandle {
 			// new item waiting is bigger than the file size limit, but no new batch
-			//
 			// just need to close, and open new one
 			w.incrementCounterAndCreateNewFile()
 		} else {
-			// normal flow
 			_, err := w.f.Write(bh.buffer[:bh.currentPos])
 			if err != nil {
 				panic(err)
@@ -321,6 +305,8 @@ func (w *AntriWalManager) committer() {
 
 			if bh.needToCreateNewFile {
 				// for not fsync on normal write, fsync now
+				// else gonna be dangerous, as the previous file
+				// may be synced by disk later than the newer one
 				if !w.fsyncOnWrite {
 					err := w.f.Sync()
 					if err != nil {
@@ -372,7 +358,7 @@ func (w *AntriWalManager) timeLimitCommitter() {
 		}
 
 		// meaning haven't changed since before,
-		// need to commit now to maintain latency for aleady-waiting requests
+		// need to commit now to maintain good latency for already-waiting requests
 		w.mu.Lock()
 		if w.currentBatch != nil &&
 			w.currentBatch.id == batchIDToTrack {
