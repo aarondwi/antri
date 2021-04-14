@@ -287,9 +287,19 @@ func (w *AntriWalManager) committer() {
 			// just need to close, and open new one
 			w.incrementCounterAndCreateNewFile()
 		} else {
-			_, err := w.f.Write(bh.buffer[:bh.currentPos])
-			if err != nil {
-				panic(err)
+			// handle partial write
+			// this code below assuming the file pointer is stable,
+			// i.e., if n bytes are written, then current file pointer is prev + n
+			written := 0
+			for {
+				n, err := w.f.Write(bh.buffer[written:bh.currentPos])
+				if err != nil && err != io.ErrShortWrite {
+					panic(err)
+				}
+				written += n
+				if written == bh.currentPos {
+					break
+				}
 			}
 
 			if w.fsyncOnWrite {
