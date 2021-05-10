@@ -96,7 +96,7 @@ func NewWalManager(
 		cancelFunc: cancelFunc,
 		wg:         &sync.WaitGroup{},
 
-		fsyncChan: make(chan *batchHandle, 4),
+		fsyncChan: make(chan *batchHandle, WRITE_CHAN_SIZE),
 
 		dataDir:   dataDir,
 		timeLimit: timeLimit,

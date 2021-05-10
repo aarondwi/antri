@@ -22,14 +22,18 @@ var WAL_BATCH_UPPER_LIMIT = 4 * 1024 * 1024
 var WAL_BATCH_LOWER_LIMIT = 128 * 1024
 
 // It is supposed to be binary data, and because aimed for business case,
-// 64KB should be much more than enough
+// 256KB should be much more than enough
 //
 // For comparison:
 //
-// 1. AWS SQS allows 256KB, but priced for each 64KB
+// 1. AWS SQS allows 256KB, but priced for each 256KB
 //
 // 2. Facebook's FOQS allows only 10KB message size
-var WAL_ITEM_SIZE_LIMIT = 64 * 1024
+var WAL_ITEM_SIZE_LIMIT = 256 * 1024
+
+// WRITE_CHAN_SIZE limits the number of waiting to be written and/or fsync'ed
+// As doing more, we gonna just put in the backlog, while the OS/disk is having problem keeping-up
+var WRITE_CHAN_SIZE = 4
 
 // RECORD_METADATA_SIZE is other data recorded together with data
 //
