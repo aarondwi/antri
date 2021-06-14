@@ -19,6 +19,8 @@ func Benchmark_Append_1KB_Parallel128_NoSync(b *testing.B) {
 
 	buf := randStringBytes(1 * 1024)
 	b.SetParallelism(128)
+	b.ReportAllocs()
+	b.SetBytes(1 * 1024)
 
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
@@ -39,6 +41,8 @@ func Benchmark_Append_1KB_NoSync(b *testing.B) {
 	}
 
 	buf := randStringBytes(1 * 1024)
+	b.ReportAllocs()
+	b.SetBytes(1 * 1024)
 	for i := 0; i < b.N; i++ {
 		f.Write(buf)
 	}
@@ -56,6 +60,8 @@ func Benchmark_Append_16KB_Parallel128_NoSync(b *testing.B) {
 
 	buf := randStringBytes(16 * 1024)
 	b.SetParallelism(128)
+	b.ReportAllocs()
+	b.SetBytes(16 * 1024)
 
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
@@ -76,6 +82,8 @@ func Benchmark_Append_16KB_NoSync(b *testing.B) {
 	}
 
 	buf := randStringBytes(16 * 1024)
+	b.ReportAllocs()
+	b.SetBytes(16 * 1024)
 	for i := 0; i < b.N; i++ {
 		f.Write(buf)
 	}
@@ -93,6 +101,8 @@ func Benchmark_Append_1KB_Parallel128_Sync(b *testing.B) {
 
 	buf := randStringBytes(1 * 1024)
 	b.SetParallelism(128)
+	b.ReportAllocs()
+	b.SetBytes(1 * 1024)
 
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
@@ -114,6 +124,8 @@ func Benchmark_Append_1KB_Sync(b *testing.B) {
 	}
 
 	buf := randStringBytes(1 * 1024)
+	b.ReportAllocs()
+	b.SetBytes(1 * 1024)
 	for i := 0; i < b.N; i++ {
 		f.Write(buf)
 		f.Sync()
@@ -132,6 +144,8 @@ func Benchmark_Append_16KB_Parallel128_Sync(b *testing.B) {
 
 	buf := randStringBytes(16 * 1024)
 	b.SetParallelism(128)
+	b.ReportAllocs()
+	b.SetBytes(16 * 1024)
 
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
@@ -153,6 +167,8 @@ func Benchmark_Append_16KB_Sync(b *testing.B) {
 	}
 
 	buf := randStringBytes(16 * 1024)
+	b.ReportAllocs()
+	b.SetBytes(16 * 1024)
 	for i := 0; i < b.N; i++ {
 		f.Write(buf)
 		f.Sync()
@@ -169,12 +185,15 @@ func Benchmark_Append_1KB_SyncPer100MB(b *testing.B) {
 	}
 
 	buf := randStringBytes(1 * 1024)
+	b.ReportAllocs()
+	b.SetBytes(1 * 1024)
 	for i := 0; i < b.N; i++ {
 		f.Write(buf)
 		if i%(1024*100) == 0 { // 1KB * 1024 * 100
 			f.Sync()
 		}
 	}
+	f.Sync()
 }
 
 func Benchmark_Append_16KB_SyncPer100MB(b *testing.B) {
@@ -187,10 +206,13 @@ func Benchmark_Append_16KB_SyncPer100MB(b *testing.B) {
 	}
 
 	buf := randStringBytes(16 * 1024)
+	b.ReportAllocs()
+	b.SetBytes(16 * 1024)
 	for i := 0; i < b.N; i++ {
 		f.Write(buf)
 		if i%(64*100) == 0 { // 16KB * 64 * 100
 			f.Sync()
 		}
 	}
+	f.Sync()
 }

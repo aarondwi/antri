@@ -24,6 +24,8 @@ func BenchmarkWalManager_SeqFsync_Batch256KB_Buf1KB_NoWait(b *testing.B) {
 
 	buf := randStringBytes(1024)
 
+	b.ReportAllocs()
+	b.SetBytes(1024)
 	for i := 0; i < b.N; i++ {
 		_, err := wm.Record(buf)
 		if err != nil {
@@ -49,6 +51,8 @@ func BenchmarkWalManager_SeqFsync_Batch256KB_Buf4KB_NoWait(b *testing.B) {
 
 	buf := randStringBytes(4 * 1024)
 
+	b.ReportAllocs()
+	b.SetBytes(4 * 1024)
 	for i := 0; i < b.N; i++ {
 		_, err := wm.Record(buf)
 		if err != nil {
@@ -74,6 +78,8 @@ func BenchmarkWalManager_SeqFsync_Batch256KB_Buf8KB_NoWait(b *testing.B) {
 
 	buf := randStringBytes(8 * 1024)
 
+	b.ReportAllocs()
+	b.SetBytes(8 * 1024)
 	for i := 0; i < b.N; i++ {
 		_, err := wm.Record(buf)
 		if err != nil {
@@ -99,6 +105,8 @@ func BenchmarkWalManager_SeqFsync_Batch256KB_Buf16KB_NoWait(b *testing.B) {
 
 	buf := randStringBytes(16 * 1024)
 
+	b.ReportAllocs()
+	b.SetBytes(16 * 1024)
 	for i := 0; i < b.N; i++ {
 		_, err := wm.Record(buf)
 		if err != nil {
@@ -124,6 +132,8 @@ func BenchmarkWalManager_SeqFsync_Batch256KB_Buf1KB_Wait(b *testing.B) {
 
 	buf := randStringBytes(1024)
 
+	b.ReportAllocs()
+	b.SetBytes(1024)
 	for i := 0; i < b.N; i++ {
 		rh, err := wm.Record(buf)
 		if err != nil {
@@ -150,6 +160,8 @@ func BenchmarkWalManager_SeqFsync_Batch256KB_Buf4KB_Wait(b *testing.B) {
 
 	buf := randStringBytes(4 * 1024)
 
+	b.ReportAllocs()
+	b.SetBytes(4 * 1024)
 	for i := 0; i < b.N; i++ {
 		rh, err := wm.Record(buf)
 		if err != nil {
@@ -176,6 +188,8 @@ func BenchmarkWalManager_SeqFsync_Batch256KB_Buf8KB_Wait(b *testing.B) {
 
 	buf := randStringBytes(8 * 1024)
 
+	b.ReportAllocs()
+	b.SetBytes(8 * 1024)
 	for i := 0; i < b.N; i++ {
 		rh, err := wm.Record(buf)
 		if err != nil {
@@ -202,6 +216,8 @@ func BenchmarkWalManager_SeqFsync_Batch256KB_Buf16KB_Wait(b *testing.B) {
 
 	buf := randStringBytes(16 * 1024)
 
+	b.ReportAllocs()
+	b.SetBytes(16 * 1024)
 	for i := 0; i < b.N; i++ {
 		rh, err := wm.Record(buf)
 		if err != nil {
@@ -229,6 +245,8 @@ func BenchmarkWalManager_Parallel256Fsync_Batch256KB_Buf1KB_Wait(b *testing.B) {
 	buf := randStringBytes(1024)
 
 	b.SetParallelism(256)
+	b.ReportAllocs()
+	b.SetBytes(1024)
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			rh, err := wm.Record(buf)
@@ -258,6 +276,8 @@ func BenchmarkWalManager_Parallel256Fsync_Batch256KB_Buf4KB_Wait(b *testing.B) {
 	buf := randStringBytes(4 * 1024)
 
 	b.SetParallelism(256)
+	b.ReportAllocs()
+	b.SetBytes(4 * 1024)
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			rh, err := wm.Record(buf)
@@ -287,6 +307,8 @@ func BenchmarkWalManager_Parallel256Fsync_Batch256KB_Buf8KB_Wait(b *testing.B) {
 	buf := randStringBytes(8 * 1024)
 
 	b.SetParallelism(256)
+	b.ReportAllocs()
+	b.SetBytes(8 * 1024)
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			rh, err := wm.Record(buf)
@@ -316,6 +338,8 @@ func BenchmarkWalManager_Parallel256Fsync_Batch256KB_Buf16KB_Wait(b *testing.B) 
 	buf := randStringBytes(16 * 1024)
 
 	b.SetParallelism(256)
+	b.ReportAllocs()
+	b.SetBytes(16 * 1024)
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			rh, err := wm.Record(buf)
@@ -345,6 +369,8 @@ func BenchmarkWalManager_Parallel128Fsync_Batch256KB_Buf1KB_Wait(b *testing.B) {
 	buf := randStringBytes(1024)
 
 	b.SetParallelism(128)
+	b.ReportAllocs()
+	b.SetBytes(1024)
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			rh, err := wm.Record(buf)
@@ -374,6 +400,8 @@ func BenchmarkWalManager_Parallel128Fsync_Batch256KB_Buf4KB_Wait(b *testing.B) {
 	buf := randStringBytes(4 * 1024)
 
 	b.SetParallelism(128)
+	b.ReportAllocs()
+	b.SetBytes(4 * 1024)
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			rh, err := wm.Record(buf)
@@ -403,6 +431,8 @@ func BenchmarkWalManager_Parallel128Fsync_Batch256KB_Buf8KB_Wait(b *testing.B) {
 	buf := randStringBytes(8 * 1024)
 
 	b.SetParallelism(128)
+	b.ReportAllocs()
+	b.SetBytes(8 * 1024)
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			rh, err := wm.Record(buf)
@@ -432,6 +462,45 @@ func BenchmarkWalManager_Parallel128Fsync_Batch256KB_Buf16KB_Wait(b *testing.B) 
 	buf := randStringBytes(16 * 1024)
 
 	b.SetParallelism(128)
+	b.ReportAllocs()
+	b.SetBytes(16 * 1024)
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			rh, err := wm.Record(buf)
+			if err != nil {
+				log.Fatal(err)
+			}
+			rh.GetFileNumber()
+		}
+	})
+}
+
+/*
+ * Special benchmarks
+ * what if bigger item limit and batch size?
+ * for heavy item scenario
+ */
+
+func BenchmarkWalManager_Parallel128Fsync_Batch1MB_Buf64KB_Wait(b *testing.B) {
+	os.RemoveAll(WAL_TEST_DIR)
+
+	wm, err := NewWalManager(
+		WAL_TEST_DIR,
+		256*1024,
+		1024*1024,
+		time.Duration(500*time.Microsecond),
+		true)
+	if err != nil {
+		log.Fatalf("It should not return error, but we got %v", err)
+	}
+	wm.Run(1)
+	defer wm.Close()
+
+	buf := randStringBytes(64 * 1024)
+
+	b.SetParallelism(128)
+	b.ReportAllocs()
+	b.SetBytes(64 * 1024)
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			rh, err := wm.Record(buf)
